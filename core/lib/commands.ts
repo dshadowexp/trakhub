@@ -212,7 +212,7 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
     } else {
         const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
         if (!headsDir) 
-            return //throw error
+            return
 
         const branches = [];
         for (const file of await readdir(headsDir, { withFileTypes: true })) {

@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from "path";
 import type { TrakAuthor, DirTree } from "./types";
 import { DIRECTORY_MODE } from "./constants";
 import { TrakRepository } from "./repository";
-import { TrakObjects } from "./database";
+import { TrakObjectsBase } from "./database";
 import { TrakBlob, TrakCommit, TrakObject, TrakTree } from "./objects";
 import { TrakIndex } from "./t-index";
 
@@ -61,7 +61,7 @@ export async function hashObject(path: string, type: string, write: boolean = fa
             throw new Error(`Unknown type ${ type }`);
     }
 
-    const hash = await TrakObjects.writeObject(object, repo);
+    const hash = await TrakObjectsBase.writeObject(object, repo);
     process.stdout.write(`${hash}\n`);
 }
 
@@ -70,7 +70,7 @@ export async function catFile(objectHash: string) {
     if (!repo)
         return;
 
-    const object = await TrakObjects.readObject(repo, objectFind(repo, objectHash));
+    const object = await TrakObjectsBase.readObject(repo, objectFind(repo, objectHash));
     process.stdout.write(`${ object?.serialize().toString() }\n` || '');
 
     function objectFind(repo: TrakRepository, name: string, fmt=null, follow=true) {
@@ -83,7 +83,7 @@ export async function lsTree(treeHash: string) {
     if (!repo)
         return;
 
-    const tree = (await TrakObjects.readObject(repo, treeHash)) as TrakTree;
+    const tree = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
     for (const { mode, name, oid } of tree.entries) {
         const type = mode.startsWith("100") ? "blob" : "tree";
         process.stdout.write(`${ mode } ${ type } ${ oid } ${ name }\n`);
@@ -132,7 +132,7 @@ export async function commit(message: string, author: TrakAuthor) {
     }
 
     if (parentCommit) {
-        const parentCommitData = (await TrakObjects.readObject(repo, parentCommit)) as TrakCommit;
+        const parentCommitData = (await TrakObjectsBase.readObject(repo, parentCommit)) as TrakCommit;
 
         if (parentCommitData.treeHash === treeHash) {
             process.stdout.write('Nothing to commit, working tree clean - second\n');
@@ -141,7 +141,7 @@ export async function commit(message: string, author: TrakAuthor) {
     }
 
     const commit = new TrakCommit(treeHash, parentHashes, author, author, message);
-    const commitHash = await TrakObjects.writeObject(commit, repo);;
+    const commitHash = await TrakObjectsBase.writeObject(commit, repo);;
 
     await _setBranchCommit(repo, currentBranch, commitHash);
     await TrakIndex.saveIndex(repo, {});
@@ -168,7 +168,7 @@ export async function log() {
     let count = 0;
     const maxCount = 10;
     while (commitHash && count < maxCount) {
-        const commit = (await TrakObjects.readObject(repo, commitHash)) as TrakCommit;
+        const commit = (await TrakObjectsBase.readObject(repo, commitHash)) as TrakCommit;
 
         process.stdout.write(`commit ${ commitHash }\n`);
         process.stdout.write(`Author: ${ commit.author.serialize() }\n`);
@@ -242,7 +242,7 @@ export async function checkout(branchName?: string, createBranch?: boolean) {
     try {
         previousCommitHash = await _getBranchCommit(repo, previousBranch);
         if (previousCommitHash) {
-            const previousCommit = (await TrakObjects.readObject(repo, previousCommitHash)) as TrakCommit;
+            const previousCommit = (await TrakObjectsBase.readObject(repo, previousCommitHash)) as TrakCommit;
             if (previousCommit.treeHash) {
                 // Populate files recursively
                 filesToClear = await _getFilesFromTree(repo, previousCommit.treeHash);
@@ -297,7 +297,7 @@ async function _getFilesFromTree(repo: TrakRepository, treeHash: string, prefix:
     let files = new Set<string>();
 
     try {
-        const treeObject = (await TrakObjects.readObject(repo, treeHash)) as TrakTree;
+        const treeObject = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
         const tree = TrakTree.deserialize(treeObject.content);
         for (const { mode, name, oid } of tree.entries) {
             const fullPath = join(prefix, name);
@@ -335,7 +335,7 @@ async function _restoreWorkingDirectory(repo: TrakRepository, branch: string, fi
         }
     }
 
-    const targetCommitObject = (await TrakObjects.readObject(repo, targetCommitHash)) as TrakCommit;
+    const targetCommitObject = (await TrakObjectsBase.readObject(repo, targetCommitHash)) as TrakCommit;
     const targetCommit = TrakCommit.deserialize(targetCommitObject.content);
 
     if (targetCommit.treeHash) {
@@ -346,7 +346,7 @@ async function _restoreWorkingDirectory(repo: TrakRepository, branch: string, fi
 }
 
 async function _restoreTree(repo: TrakRepository, treeHash: string, pathPrefix: string) {
-    const treeObject = (await TrakObjects.readObject(repo, treeHash)) as TrakTree;
+    const treeObject = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
     const tree = TrakTree.deserialize(treeObject.content);
 
     for (const { mode, name, oid } of tree.entries) {
@@ -356,7 +356,7 @@ async function _restoreTree(repo: TrakRepository, treeHash: string, pathPrefix: 
             if (!fullPath) 
                 continue;
             // Read blob object from hash
-            const blobObject = (await TrakObjects.readObject(repo, oid)) as TrakBlob;
+            const blobObject = (await TrakObjectsBase.readObject(repo, oid)) as TrakBlob;
             const blob = TrakBlob.deserialize(blobObject.content);
             // Write blob content to file
             await TrakRepository.writeFile(fullPath, blob.content);
@@ -374,7 +374,7 @@ async function _restoreTree(repo: TrakRepository, treeHash: string, pathPrefix: 
 async function _createTreeFromIndex(repo: TrakRepository, indexEntries: Record<string, string>): Promise<string> {
     // Store empty tree for empty index entries
     if (Object.keys(indexEntries).length === 0) {
-        return await TrakObjects.writeObject(new TrakTree(), repo);
+        return await TrakObjectsBase.writeObject(new TrakTree(), repo);
     }
 
     // Initialize files and directory maps
@@ -432,14 +432,14 @@ async function _createTreeRecursive(repo: TrakRepository, dirTree: DirTree, pref
         }
     }
 
-    return await TrakObjects.writeObject(tree, repo);
+    return await TrakObjectsBase.writeObject(tree, repo);
 }
 
 async function _addFile(filePath: string, repo: TrakRepository) {
     // Read the file content
     const fileData = await TrakRepository.readFile(filePath);
     // Create and Store blob object in database
-    const blobHash = await TrakObjects.writeObject(new TrakBlob(fileData), repo);
+    const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
     // Load index file json contents
     const indexJSON = await TrakIndex.loadIndex(repo);
     // Map blob hash to file path: [path] -> hash
@@ -471,7 +471,7 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
                 // Read the file content
                 const fileData = await TrakRepository.readFile(fullPath);
                 // Create and store blob object from content
-                const blobHash = await TrakObjects.writeObject(new TrakBlob(fileData), repo);
+                const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
                 // Update index map of blob hash to file path: [path] -> indexEntry
                 indexJSON[relative(repo.workTree, fullPath)] = blobHash;
             }

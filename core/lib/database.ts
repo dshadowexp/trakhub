@@ -5,7 +5,7 @@ import { Readable, Writable } from "stream";
 import { TrakRepository } from "./repository";
 import { TrakBlob, TrakCommit, TrakObject, TrakTree } from "./objects";
 
-export class TrakObjects {
+export class TrakObjectsBase {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
         // Compute object hash
         const objectHash = object.hash();

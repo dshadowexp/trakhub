@@ -1,2 +1,36 @@
 export type DirTree = { [name: string]: DirTree | string };
-export type Entry = { mode: string, name: string, oid: string };
+export type TrakTreeEntry = { mode: string, name: string, oid: string };
+export type TrakIndexEntry = {
+    ctimeSeconds: number;
+    ctimeNanoseconds: number;
+    mtimeSeconds: number;
+    mtimeNanoseconds: number;
+    dev: number;
+    ino: number;
+    mode: number;
+    uid: number;
+    gid: number;
+    size: number;
+    oid: Buffer;
+    flags: number;
+    path: string;
+}
+export type TrakIndexRecord = Record<string, string>;
+
+export class TrakAuthor {
+    constructor(private _name: string, private _email: string, private _timestamp: number = 0) {
+        this._timestamp = this._timestamp == 0 ? this._initTimestamp() : this._timestamp;
+    }
+
+    get timestamp(): number {
+        return this._timestamp;
+    }
+
+    private _initTimestamp(): number {
+        return Math.floor((new Date()).getTime() / 1000);
+    }
+
+    serialize(): string {
+        return `${ this._name } <${ this._email }>`;
+    }
+}

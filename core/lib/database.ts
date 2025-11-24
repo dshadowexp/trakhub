@@ -5,7 +5,7 @@ import { Readable, Writable } from "stream";
 import { TrakRepository } from "./repository";
 import { TrakBlob, TrakCommit, TrakObject, TrakTree } from "./objects";
 
-export class TrakDatabase {
+export class TrakObjects {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
         // Compute object hash
         const objectHash = object.hash();
@@ -89,36 +89,4 @@ export class TrakDatabase {
                 throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
         }
     }   
-
-    static async loadIndex(repo: TrakRepository): Promise<Record<string, string>> {
-        const indexFilePath = await TrakRepository.repoFile(repo, false, "index");
-
-        if (!indexFilePath || !TrakRepository.exists(indexFilePath))
-            return {};
-
-        try {
-            const indexContent = (await TrakRepository.readFile(indexFilePath)).toString();
-            if (!indexContent.trim())
-                return {};
-
-            return JSON.parse(indexContent);
-        } catch (error) {
-            throw new Error(`Error loading index: ${error}`);
-        }
-    }
-
-    static async saveIndex(repo: TrakRepository, index: Record<string, string>) {
-        const indexFilePath = await TrakRepository.repoFile(repo, true, "index");
-        if (!indexFilePath)
-            return;
-        
-        try {
-            await pipeline(
-                Readable.from(JSON.stringify(index, null, 2)),
-                createWriteStream(indexFilePath, { encoding: 'utf-8' })
-            );
-        } catch (error) {
-            throw new Error(`Error saving index: ${error}`);
-        }
-    }
 }

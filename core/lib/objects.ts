@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import type { Entry } from './types';
+import { TrakAuthor, type TrakTreeEntry } from './types';
 
 export class TrakObject {
     protected _type: string;
@@ -45,16 +45,16 @@ export class TrakBlob extends TrakObject {
 }
 
 export class TrakTree extends TrakObject {
-    constructor(private _entries: Entry[] = []) {
+    constructor(private _entries: TrakTreeEntry[] = []) {
         super("tree");
         this._content = this.serialize();
     }
 
-    get entries(): Entry[] {
+    get entries(): TrakTreeEntry[] {
         return this._entries;
     }
 
-    async addEntry(entry: Entry) {
+    async addEntry(entry: TrakTreeEntry) {
         this._entries.push(entry);
         this._content = this.serialize();
     }
@@ -90,32 +90,14 @@ export class TrakTree extends TrakObject {
     }
 }
 
-export class Author {
-    constructor(private _name: string, private _email: string, private _timestamp: number = 0) {
-        this._timestamp = this._timestamp == 0 ? this._initTimestamp() : this._timestamp;
-    }
-
-    get timestamp(): number {
-        return this._timestamp;
-    }
-
-    private _initTimestamp(): number {
-        return Math.floor((new Date()).getTime() / 1000);
-    }
-
-    serialize(): string {
-        return `${ this._name } <${ this._email }>`;
-    }
-}
-
 export class TrakCommit extends TrakObject {
     private _timezone: string;
 
     constructor(
         private _treeHash: string, 
         private _parentHashes: string[], 
-        private _author: Author, 
-        private _committer: Author,
+        private _author: TrakAuthor, 
+        private _committer: TrakAuthor,
         private _message: string,
     ) {
         super("commit");
@@ -131,11 +113,11 @@ export class TrakCommit extends TrakObject {
         return this._parentHashes;
     }
 
-    get author(): Author {
+    get author(): TrakAuthor {
         return this._author;
     }
 
-    get committer(): Author {
+    get committer(): TrakAuthor {
         return this._committer;
     }
 
@@ -175,8 +157,8 @@ export class TrakCommit extends TrakObject {
         const lines = content.toString().split('\n');
         let treeHash = null, 
             parentHashes: string[] = [], 
-            author: Author | null = null, 
-            committer: Author | null = null, 
+            author: TrakAuthor | null = null, 
+            committer: TrakAuthor | null = null, 
             timestamp: number | null = null,
             message_start = 0;
 
@@ -203,7 +185,7 @@ export class TrakCommit extends TrakObject {
         return new TrakCommit(treeHash!, parentHashes, author!, committer!, message);
     }
 
-    private static _unwrapAuthorLine(content: string): [Author, number] {
+    private static _unwrapAuthorLine(content: string): [TrakAuthor, number] {
         // Find last space (before timezone)
         const lastSpace = content.lastIndexOf(' ');
         const timezone = content.substring(lastSpace + 1);
@@ -217,6 +199,6 @@ export class TrakCommit extends TrakObject {
         const name = author.slice(0, -1).join(' ');
         const email = author[author.length - 1].substring(1, author[author.length - 1].length - 1);
 
-        return [new Author(name, email), timestamp];
+        return [new TrakAuthor(name, email), timestamp];
     }
 }

@@ -1,8 +1,10 @@
-import { mkdir, realpath } from "fs/promises";
+import { mkdir, realpath, unlink } from "fs/promises";
 import { createReadStream, createWriteStream, existsSync, statSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
+import { rmdir } from "fs/promises";
+import { readdir } from "fs/promises";
 
 export class TrakRepository {
     private _trakDir: string;
@@ -35,6 +37,10 @@ export class TrakRepository {
         return statSync(path).isFile();
     }
 
+    static stats(path: string) {
+        return statSync(path)
+    }
+
     static async readFile(path: string) {
         const chunks: Buffer[] = [];
         const collectStream = new Writable({
@@ -51,6 +57,29 @@ export class TrakRepository {
 
     static async writeFile(path: string, data: string | Buffer) {
         await pipeline(Readable.from(data), createWriteStream(path));
+    }
+
+    static async removeFile(repo: TrakRepository, path: string, rmDir: boolean = false) {
+        await unlink(path);
+
+        if (rmDir) {
+            // Remove empty parent directories
+            let parentDir = dirname(path);
+            while (parentDir !== repo.workTree && parentDir !== dirname(parentDir)) {
+                try {
+                    const entries = await readdir(parentDir);
+
+                    if (entries.length === 0) {
+                        await rmdir(parentDir);
+                        parentDir = dirname(parentDir);
+                    } else {
+                        break;
+                    }
+                } catch {
+                    break;
+                }
+            }
+        }
     }
 
     static repoPath(repo: TrakRepository, ...path: string[]): string {

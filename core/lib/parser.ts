@@ -1,5 +1,5 @@
 import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch } from "./commands";
-import { Author } from "./objects";
+import { TrakAuthor } from "./types";
 
 export async function parse(args: string[]) {
     try {
@@ -14,7 +14,7 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'add') {
             await add(args[1]);
         } else if (args[0] === 'commit') {
-            const author = new Author('Trak User', 'user@trak.com');
+            const author = new TrakAuthor('Trak User', 'user@trak.com');
             await commit(args[1], author);
         } else if (args[0] === 'checkout') {
 

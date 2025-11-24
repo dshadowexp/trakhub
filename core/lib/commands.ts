@@ -84,7 +84,11 @@ export async function lsTree(treeHash: string) {
         return;
 
     const tree = (await TrakDatabase.readObject(repo, treeHash)) as TrakTree;
-    process.stdout.write(`${tree.content.toString()}`);
+    console.log(tree);
+    for (const { mode, name, oid } of tree.entries) {
+        const type = mode.startsWith("100") ? "blob" : "tree";
+        process.stdout.write(`${ mode } ${ type } ${ oid } ${ name }\n`);
+    } 
 }
 
 export async function add(path: string) {
@@ -207,7 +211,7 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
     } else {
         const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
         if (!headsDir) 
-            return //throw error
+            return
 
         const branches = [];
         for (const file of await readdir(headsDir, { withFileTypes: true })) {

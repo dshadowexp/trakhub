@@ -74,7 +74,7 @@ export class TrakDatabase {
         
         // Verify content size matches header
         if (content.byteLength !== size) {
-            console.warn(`Size mismatch: expected ${size}, got ${content.byteLength}`);
+            process.stdout.write(`Size mismatch: expected ${size}, got ${content.byteLength}\n`);
         }
 
         const baseObject = new TrakObject(objectType, content);

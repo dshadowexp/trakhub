@@ -41,19 +41,6 @@ export async function createRepo(path: string) {
     return repo;
 }
 
-export async function catFile(objectHash: string) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-
-    const object = await TrakDatabase.readObject(repo, objectFind(repo, objectHash));
-    process.stdout.write(object?.serialize().toString() || '');
-
-    function objectFind(repo: TrakRepository, name: string, fmt=null, follow=true) {
-        return name;
-    }
-}
-
 export async function hashObject(path: string, type: string, write: boolean = false) {
     const repo = write ? await TrakRepository.repoFind() : null;
     const data = await TrakRepository.readFile(path);
@@ -76,6 +63,19 @@ export async function hashObject(path: string, type: string, write: boolean = fa
 
     const hash = await TrakDatabase.writeObject(object, repo);
     process.stdout.write(`${hash}\n`);
+}
+
+export async function catFile(objectHash: string) {
+    const repo = await TrakRepository.repoFind();
+    if (!repo)
+        return;
+
+    const object = await TrakDatabase.readObject(repo, objectFind(repo, objectHash));
+    process.stdout.write(`${ object?.serialize().toString() }\n` || '');
+
+    function objectFind(repo: TrakRepository, name: string, fmt=null, follow=true) {
+        return name;
+    }
 }
 
 export async function lsTree(treeHash: string) {
@@ -143,7 +143,9 @@ export async function commit(message: string, author: Author) {
     await _setBranchCommit(repo, currentBranch, commitHash);
     await TrakDatabase.saveIndex(repo, {});
 
-    process.stdout.write(`Created commit ${commitHash} on branch ${currentBranch}\n`);
+    // if parentHashes.length > 0  // use branch otherwise root commit
+    const commitPointer = parentHashes.length > 0 ? currentBranch : currentBranch;
+    process.stdout.write(`[${ commitPointer } ${ commitHash }] | branch ${ currentBranch } | ${ message }\n`);
     return commitHash;
 }
 

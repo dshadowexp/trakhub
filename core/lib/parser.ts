@@ -1,21 +1,40 @@
-import { commitCommand, hashObjectCommand, initCommand } from "./commands";
+import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch } from "./commands";
+import { Author } from "./objects";
 
 export async function parse(args: string[]) {
-    // for (let i = 0; i < args.length; i++) {
-    //     var arg = args[i];
-	// 	var key;
-	// 	var next;
+    try {
+        if (args[0] === 'init') {
+            await createRepo('.');
+        } else if (args[0] === 'cat-file') {
+            await catFile(args[1]);
+        } else if (args[0] === 'hash-object') {
+            await hashObject(args[2], args[1], true);
+        } else if (args[0] === 'ls-tree') {
+            await lsTree(args[1]);
+        } else if (args[0] === 'add') {
+            await add(args[1]);
+        } else if (args[0] === 'commit') {
+            const author = new Author('Trak User', 'user@trak.com');
+            await commit(args[1], author);
+        } else if (args[0] === 'checkout') {
 
-    //     if ()
-    // }
+            const name = args.slice(1).length > 1 ? args[2] : args[1];
+            const option = args.slice(1).length > 1;
+            if (!name) {
+                await checkout();
+                return;
+            }
+            await checkout(name, option);
+        } else if (args[0] === 'branch') {
 
-    if (args[0] === 'init') {
-        await initCommand(args[1]);
-    } if (args[0] === 'hash-object') {
-        await hashObjectCommand(args[1]);
-    } else if (args[0] === 'ls-tree') {
-
-    } else if (args[0] === 'commit') {
-        await commitCommand();
+            const name = args.slice(1).length > 1 ? args[2] : args[1];
+            const option = args.slice(1).length > 1;
+  
+            await branch(name, option)
+        } else if (args[0] === 'log') {
+            await log();
+        }
+    } catch (error) {
+        console.log(error);
     }
 }

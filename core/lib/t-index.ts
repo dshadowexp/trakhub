@@ -1,6 +1,7 @@
 import { TrakRepository } from "./repository";
 import { MAX_PATH_SIZE } from "./constants";
 import type { TrakIndexEntry, TrakIndexRecord } from "./types";
+import { TrakFileSystem } from "./file-system";
 
 const HEADER_SIZE = 12;
 const HEADER_FORMAT = "a4N2";
@@ -10,7 +11,8 @@ const VERSION = 2;
 export class TrakIndex {
     private static _createIndexEntry(path: string, oid: string): string {
         // Get file stats
-        const stats = TrakRepository.stats(path);
+        const stats = TrakFileSystem.stats(path);
+        
         // Initialize index extr
         const entry: TrakIndexEntry = {
             ctimeSeconds: stats.ctime.getTime() / 1000,
@@ -34,11 +36,11 @@ export class TrakIndex {
     static async loadIndex(repo: TrakRepository): Promise<TrakIndexRecord> {
         const indexFilePath = await TrakRepository.repoFile(repo, false, "index");
 
-        if (!indexFilePath || !TrakRepository.exists(indexFilePath))
+        if (!indexFilePath || !TrakFileSystem.exists(indexFilePath))
             return {};
 
         try {
-            const indexContent = (await TrakRepository.readFile(indexFilePath)).toString();
+            const indexContent = (await TrakFileSystem.readFile(indexFilePath)).toString();
             if (!indexContent.trim())
                 return {};
 
@@ -64,9 +66,13 @@ export class TrakIndex {
         // console.log(rawEntries);
         
         try {
-            await TrakRepository.writeFile(indexFilePath, JSON.stringify(indexEntries, null, 2));
+            await TrakFileSystem.writeFile(indexFilePath, JSON.stringify(indexEntries, null, 2));
         } catch (error) {
             throw new Error(`Error saving index: ${error}`);
         }
+    }
+
+    static async clearIndex(repo: TrakRepository) {
+        await TrakIndex.saveIndex(repo, {});
     }
 }

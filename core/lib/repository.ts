@@ -1,10 +1,6 @@
-import { mkdir, realpath, unlink } from "fs/promises";
-import { createReadStream, createWriteStream, existsSync, statSync } from "fs";
-import { dirname, join } from "path";
-import { Readable, Writable } from "stream";
-import { pipeline } from "stream/promises";
-import { rmdir } from "fs/promises";
-import { readdir } from "fs/promises";
+import { mkdir, realpath } from "fs/promises";
+import { join } from "path";
+import { TrakFileSystem } from "./file-system";
 
 export class TrakRepository {
     private _trakDir: string;
@@ -12,7 +8,7 @@ export class TrakRepository {
     constructor(private _workTree: string, force: boolean = false) {
         this._trakDir = join(this._workTree, ".trak");
 
-        if (!(force || TrakRepository.exists(this._trakDir) && TrakRepository.isDirectory(this._trakDir))) {
+        if (!(force || TrakFileSystem.exists(this._trakDir) && TrakFileSystem.isDirectory(this._trakDir))) {
             throw new Error(`Not a Git repository ${this._workTree}`)
         }
     }
@@ -23,63 +19,6 @@ export class TrakRepository {
 
     get workTree(): string {
         return this._workTree;
-    }
-
-    static exists(path: string) {
-        return existsSync(path);
-    }
-
-    static isDirectory(path: string) {
-        return statSync(path).isDirectory()
-    }
-
-    static isFile(path: string) {
-        return statSync(path).isFile();
-    }
-
-    static stats(path: string) {
-        return statSync(path)
-    }
-
-    static async readFile(path: string) {
-        const chunks: Buffer[] = [];
-        const collectStream = new Writable({
-            write(chunk, encoding, callback) {
-                chunks.push(chunk);
-                callback();
-            }
-        });
-
-        await pipeline(createReadStream(path), collectStream);
-
-        return Buffer.concat(chunks);
-    }
-
-    static async writeFile(path: string, data: string | Buffer) {
-        await pipeline(Readable.from(data), createWriteStream(path));
-    }
-
-    static async removeFile(repo: TrakRepository, path: string, rmDir: boolean = false) {
-        await unlink(path);
-
-        if (rmDir) {
-            // Remove empty parent directories
-            let parentDir = dirname(path);
-            while (parentDir !== repo.workTree && parentDir !== dirname(parentDir)) {
-                try {
-                    const entries = await readdir(parentDir);
-
-                    if (entries.length === 0) {
-                        await rmdir(parentDir);
-                        parentDir = dirname(parentDir);
-                    } else {
-                        break;
-                    }
-                } catch {
-                    break;
-                }
-            }
-        }
     }
 
     static repoPath(repo: TrakRepository, ...path: string[]): string {
@@ -95,9 +34,8 @@ export class TrakRepository {
     static async repoDir(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
         const fullPath = this.repoPath(repo, ...path);
 
-        if (TrakRepository.exists(fullPath)) {
-            
-            if (TrakRepository.isDirectory(fullPath)) {
+        if (TrakFileSystem.exists(fullPath)) {
+            if (TrakFileSystem.isDirectory(fullPath)) {
                 return fullPath;
             } else {
                 throw new Error(`Not a directory ${ fullPath }`);
@@ -115,7 +53,7 @@ export class TrakRepository {
     static async repoFind(path: string = '.', required: boolean = true): Promise<TrakRepository | null> {
         path = await realpath(path);
 
-        if (TrakRepository.isDirectory(join(path, '.trak'))) {
+        if (TrakFileSystem.isDirectory(join(path, '.trak'))) {
             return new TrakRepository(path);
         }
 

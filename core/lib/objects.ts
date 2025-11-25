@@ -1,5 +1,97 @@
 import { createHash } from 'crypto';
 import { TrakAuthor, type TrakTreeEntry } from './types';
+import { createReadStream, createWriteStream } from "fs";
+import { pipeline } from "stream/promises";
+import { createDeflate, createInflate } from "zlib";
+import { Readable, Writable } from "stream";
+import { TrakRepository } from "./repository";
+import { getTimezone } from './util';
+
+export class TrakObjectsBase {
+    static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
+        // Compute object hash
+        const objectHash = object.hash();
+
+        if (repo) {
+            // Create the directory structure (e.g., .git/objects/ab/)
+            const objectFilePath = await TrakRepository.repoFile(repo, true, "objects",  objectHash.substring(0, 2), objectHash.substring(2));
+
+            // Ensure directory exists
+            if (objectFilePath && !TrakRepository.exists(objectFilePath)) {
+                const result = Buffer.concat([Buffer.from(`${object.type} ${object.content.byteLength}\0`), object.content]);
+        
+                await pipeline(
+                    Readable.from(result), 
+                    createDeflate(), 
+                    createWriteStream(objectFilePath)
+                );
+            }
+        }
+
+        return objectHash;
+    }
+
+    static async readObject(repo: TrakRepository, hash: string) {
+        const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
+
+        if (!path || !TrakRepository.exists(path))
+            throw new Error(`Object ${hash} not found`);
+
+        if (!TrakRepository.isFile(path))
+            return null;
+
+        const chunks: Buffer[] = [];
+        const collectStream = new Writable({
+            write(chunk, encoding, callback) {
+                chunks.push(chunk);
+                callback();
+            }
+        });
+
+        await pipeline(
+            createReadStream(path),
+            createInflate(),
+            collectStream
+        );
+
+        // Gather decompressed byte
+        const decompressed = Buffer.concat(chunks);
+
+        // Find index of null byte
+        const nullIdx = decompressed.indexOf(0);
+        if (nullIdx === -1) {
+            throw new Error('Invalid object format: no null byte found');
+        }
+
+        const header = decompressed.subarray(0, nullIdx);
+        const content = decompressed.subarray(nullIdx + 1);
+
+        const parts = header.toString().split(' ');
+        if (parts.length !== 2) {
+            throw new Error(`Invalid header format: "${header}"`);
+        }
+
+        const [objectType, sizeStr] = parts;
+        const size = parseInt(sizeStr, 10);
+        
+        // Verify content size matches header
+        if (content.byteLength !== size) {
+            process.stdout.write(`Size mismatch: expected ${size}, got ${content.byteLength}\n`);
+        }
+
+        const baseObject = new TrakObject(objectType, content);
+        switch(objectType) {
+            case 'blob':
+                return TrakBlob.deserialize(baseObject.content);
+            case 'tree':
+                return TrakTree.deserialize(baseObject.content);
+            case 'commit':
+                return TrakCommit.deserialize(baseObject.content);
+            default:
+                throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
+        }
+    }   
+}
 
 export class TrakObject {
     protected _type: string;
@@ -91,8 +183,6 @@ export class TrakTree extends TrakObject {
 }
 
 export class TrakCommit extends TrakObject {
-    private _timezone: string;
-
     constructor(
         private _treeHash: string, 
         private _parentHashes: string[], 
@@ -102,7 +192,6 @@ export class TrakCommit extends TrakObject {
     ) {
         super("commit");
         this._content = this.serialize();
-        this._timezone = this._setTimezone(new Date());
     }
 
     get treeHash(): string {
@@ -121,20 +210,8 @@ export class TrakCommit extends TrakObject {
         return this._committer;
     }
 
-    get timezone(): string {
-        return this._timezone;
-    }
-
     get message(): string {
         return this._message;
-    }
-
-    private _setTimezone(date: Date): string {
-        const offset = -date.getTimezoneOffset();
-        const hours = Math.floor(Math.abs(offset) / 60);
-        const minutes = Math.abs(offset) % 60;
-        const sign = offset >= 0 ? '+' : '-';
-        return `${sign}${String(hours).padStart(2, '0')}${String(minutes).padStart(2, '0')}`;
     }
 
     serialize(): Buffer {
@@ -143,8 +220,8 @@ export class TrakCommit extends TrakObject {
             lines.push(`parent ${ parent }`);
         }
 
-        lines.push(`author ${ this._author.serialize() } ${ this._author.timestamp } ${ this._timezone }`);
-        lines.push(`committer ${ this._committer.serialize() } ${ this._author.timestamp } ${ this._timezone }`);
+        lines.push(`author ${ this._author.serialize() } ${ this._author.timestamp } ${ getTimezone(new Date(this._author.timestamp * 1000)) }`);
+        lines.push(`committer ${ this._committer.serialize() } ${ this._author.timestamp } ${ getTimezone(new Date(this._author.timestamp * 1000)) }`);
         lines.push("");
         lines.push(this._message);
 
@@ -185,7 +262,7 @@ export class TrakCommit extends TrakObject {
         return new TrakCommit(treeHash!, parentHashes, author!, committer!, message);
     }
 
-    private static _unwrapAuthorLine(content: string): [TrakAuthor, number] {
+    private static _unwrapAuthorLine(content: string): [TrakAuthor, number, string] {
         // Find last space (before timezone)
         const lastSpace = content.lastIndexOf(' ');
         const timezone = content.substring(lastSpace + 1);
@@ -199,6 +276,6 @@ export class TrakCommit extends TrakObject {
         const name = author.slice(0, -1).join(' ');
         const email = author[author.length - 1].substring(1, author[author.length - 1].length - 1);
 
-        return [new TrakAuthor(name, email), timestamp];
+        return [new TrakAuthor(name, email), timestamp, timezone];
     }
 }

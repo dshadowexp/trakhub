@@ -16,8 +16,9 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'commit') {
             const author = new TrakAuthor('Trak User', 'user@trak.com');
             await commit(args[1], author);
+        } else if (args[0] === 'log') {
+            await log();
         } else if (args[0] === 'checkout') {
-
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             const option = args.slice(1).length > 1;
             if (!name) {
@@ -26,13 +27,20 @@ export async function parse(args: string[]) {
             }
             await checkout(name, option);
         } else if (args[0] === 'branch') {
-
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             const option = args.slice(1).length > 1;
   
             await branch(name, option)
-        } else if (args[0] === 'log') {
-            await log();
+        } else if (args[0] === 'status') {
+
+        } else if (args[0] === 'merge') {
+
+        } else if (args[0] === 'clone') {
+
+        } else if (args[0] === 'pull') {
+
+        } else if (args[0] === 'push') {
+            
         }
     } catch (error) {
         console.log(error);

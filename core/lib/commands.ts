@@ -1,21 +1,23 @@
 import { mkdir, readdir } from "fs/promises";
-import { dirname, join, relative, resolve } from "path";
+import { join, relative, resolve } from "path";
 import type { TrakAuthor, DirTree } from "./types";
-import { DIRECTORY_MODE } from "./constants";
+import { DIRECTORY_MODE, EXECUTABLE_FILE_MODE, REGULAR_FILE_MODE, SYMBOLIC_LINK } from "./constants";
 import { TrakRepository } from "./repository";
-import { TrakObjectsBase } from "./database";
-import { TrakBlob, TrakCommit, TrakObject, TrakTree } from "./objects";
+import { TrakBlob, TrakCommit, TrakObject, TrakTree, TrakObjectsBase } from "./objects";
 import { TrakIndex } from "./t-index";
+import { formatGitDate } from "./util";
+import { TrakRefs } from "./refs";
+import { TrakFileSystem } from "./file-system";
 
 const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'test2.txt'];
 
 export async function createRepo(path: string) {
     const repo = new TrakRepository(path, true);
 
-    if (TrakRepository.exists(repo.workTree)) {
-        if (!TrakRepository.isDirectory(repo.workTree))
+    if (TrakFileSystem.exists(repo.workTree)) {
+        if (!TrakFileSystem.isDirectory(repo.workTree))
             throw new Error(`${ path } is not a directory`);
-        if (TrakRepository.exists(repo.trakDir)) {
+        if (TrakFileSystem.exists(repo.trakDir)) {
             try {
                 if ((await readdir(repo.trakDir)).length > 0) {
                     throw new Error(`${ path } is not empty`);
@@ -32,18 +34,18 @@ export async function createRepo(path: string) {
 
     const headFile = await TrakRepository.repoFile(repo, false, "HEAD");
     if (headFile)
-        await TrakRepository.writeFile(headFile, 'ref: refs/heads/master');
+        await TrakFileSystem.writeFile(headFile, 'ref: refs/heads/master');
     
     const descriptionFile = await TrakRepository.repoFile(repo, false, "description");
     if (descriptionFile)
-        await TrakRepository.writeFile(descriptionFile, "Unnamed repository; edit this file 'description' to name the repository.\n");
+        await TrakFileSystem.writeFile(descriptionFile, "Unnamed repository; edit this file 'description' to name the repository.\n");
 
     return repo;
 }
 
 export async function hashObject(path: string, type: string, write: boolean = false) {
     const repo = write ? await TrakRepository.repoFind() : null;
-    const data = await TrakRepository.readFile(path);
+    const data = await TrakFileSystem.readFile(path);
     const baseObject = new TrakObject(type, data);
     
     let object;
@@ -98,15 +100,13 @@ export async function add(path: string) {
     // Resolve path argument
     const fullPath = resolve(path);
     // Ensure path exists
-    if (!TrakRepository.exists(fullPath))
+    if (!TrakFileSystem.exists(fullPath))
         throw new Error(`Path ${fullPath} not found`);
 
-    // Extract stats to process file and directory seperately
-    const fileStats = TrakRepository.stats(fullPath);
-    if (TrakRepository.isFile(fullPath)) {
+    if (TrakFileSystem.isFile(fullPath)) {
         // Add file to object
         await _addFile(fullPath, repo);
-    } else if (TrakRepository.isDirectory(fullPath)) {
+    } else if (TrakFileSystem.isDirectory(fullPath)) {
         // Add directory
         await _addDirectory(fullPath, repo);
     } else {
@@ -119,9 +119,9 @@ export async function commit(message: string, author: TrakAuthor) {
     if (!repo)
         return;
 
-    const currentBranch = await _getCurrentBranch(repo);
-    const parentCommit = await _getBranchCommit(repo, currentBranch);
-    const parentHashes = parentCommit !== undefined ? [ parentCommit ] : [];
+    const currentBranchName = await TrakRefs.getCurrentBranch(repo);
+    const parentCommitHash = await TrakRefs.getBranchCommit(repo, currentBranchName);
+    const parentHashes = parentCommitHash !== undefined ? [ parentCommitHash ] : [];
 
     const indexContent = await TrakIndex.loadIndex(repo);
     const treeHash = await _createTreeFromIndex(repo, indexContent);
@@ -131,10 +131,10 @@ export async function commit(message: string, author: TrakAuthor) {
         return null;
     }
 
-    if (parentCommit) {
-        const parentCommitData = (await TrakObjectsBase.readObject(repo, parentCommit)) as TrakCommit;
+    if (parentCommitHash) {
+        const parentCommitObject = (await TrakObjectsBase.readObject(repo, parentCommitHash)) as TrakCommit;
 
-        if (parentCommitData.treeHash === treeHash) {
+        if (parentCommitObject.treeHash === treeHash) {
             process.stdout.write('Nothing to commit, working tree clean - second\n');
             return null;
         }
@@ -143,11 +143,10 @@ export async function commit(message: string, author: TrakAuthor) {
     const commit = new TrakCommit(treeHash, parentHashes, author, author, message);
     const commitHash = await TrakObjectsBase.writeObject(commit, repo);;
 
-    await _setBranchCommit(repo, currentBranch, commitHash);
-    await TrakIndex.saveIndex(repo, {});
+    await TrakRefs.setBranchCommit(repo, currentBranchName, commitHash);
+    await TrakIndex.clearIndex(repo);
 
-    // if parentHashes.length > 0  // use branch otherwise root commit
-    const commitPointer = parentHashes.length > 0 ? currentBranch : currentBranch;
+    const commitPointer = parentHashes.length > 0 ? currentBranchName : currentBranchName;
     process.stdout.write(`[${ commitPointer } ${ commitHash }] ${ message }\n`);
     return commitHash;
 }
@@ -157,8 +156,8 @@ export async function log() {
     if (!repo)
         return;
 
-    const currentBranch = await _getCurrentBranch(repo);
-    let commitHash = await _getBranchCommit(repo, currentBranch)
+    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+    let commitHash = await TrakRefs.getBranchCommit(repo, currentBranch)
 
     if (!commitHash) {
         process.stdout.write("No commits yet!\n");
@@ -172,11 +171,71 @@ export async function log() {
 
         process.stdout.write(`commit ${ commitHash }\n`);
         process.stdout.write(`Author: ${ commit.author.serialize() }\n`);
-        process.stdout.write(`Date: ${ new Date(commit.author.timestamp * 1000).toString() }\n`);
+        process.stdout.write(`Date:   ${ formatGitDate(commit.author.timestamp) }\n`);
         process.stdout.write(`\n    ${ commit.message }\n`);
 
         commitHash = commit.parentHashes.length > 0 ? commit.parentHashes[0] : undefined;
         count += 1
+    }
+}
+
+
+export async function checkout(branchName?: string, createBranch?: boolean) {
+    const repo = await TrakRepository.repoFind();
+    if (!repo)
+        return;
+
+    const previousBranch = await TrakRefs.getCurrentBranch(repo);
+    let filesToClear = new Set<string>();
+    let previousCommitHash;
+
+    try {
+        previousCommitHash = await TrakRefs.getBranchCommit(repo, previousBranch);
+        if (previousCommitHash) {
+            const previousCommit = (await TrakObjectsBase.readObject(repo, previousCommitHash)) as TrakCommit;
+
+            // Check for uncommitted changed
+            // return with "You have uncommitted changed. Commit or stash them first";
+
+            // Get the tree of files from the target commit
+            filesToClear = await _getFilesFromTree(repo, previousCommit.treeHash);
+
+        }
+    } catch (error) {
+        filesToClear = new Set();
+    }
+
+    console.log(filesToClear);
+
+    if (!branchName || branchName === previousBranch) {
+        for (const file of filesToClear) {
+            process.stdout.write(`M\t${ file }\n`);
+        }
+        
+        if (branchName === previousBranch) {
+            process.stdout.write(`Already on '${branchName}'\n`);
+        } else {
+            process.stdout.write(`Your branch is up to date with '${ previousBranch }'\n`);
+        }
+    } else {
+        const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
+
+        if (!TrakFileSystem.exists(branchFile!)) {
+            if (createBranch) {
+                if (previousCommitHash) {
+                    await TrakRefs.setBranchCommit(repo, branchName, previousCommitHash);
+                    process.stdout.write(`Created new branch ${ branchName }\n`);
+                } else {
+                    process.stdout.write('No commits yet, cannot create branch\n');
+                }
+            } else {
+                process.stdout.write(`Branch ${ branchName } not found\n`);
+                return;
+            }
+        }
+
+        await TrakRefs.setCurrentBranch(repo, branchName);
+        await _restoreWorkingDirectory(repo, branchName, filesToClear);
     }
 }
 
@@ -190,8 +249,8 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
         if (!branchFile)
             return;
 
-        if (TrakRepository.exists(branchFile)) {
-            await TrakRepository.removeFile(repo, branchFile);
+        if (TrakFileSystem.exists(branchFile)) {
+            await TrakFileSystem.removeFile(branchFile);
             process.stdout.write(`Delete branch ${ branchName }\n`);
         } else {
             process.stdout.write(`Branch ${ branchName } not found`);
@@ -200,11 +259,11 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
         return;
     }
 
-    const currentBranch = await _getCurrentBranch(repo);
+    const currentBranch = await TrakRefs.getCurrentBranch(repo);
     if (branchName) {
-        const currentCommit = await _getBranchCommit(repo, currentBranch);
+        const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
         if (currentCommit) {
-            await _setBranchCommit(repo, branchName, currentCommit);
+            await TrakRefs.setBranchCommit(repo, branchName, currentCommit);
             process.stdout.write(`Created branch ${ branchName }\n`);
         } else {
             process.stdout.write('No commits yet, cannot create a new branch\n');
@@ -222,7 +281,6 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
         }
 
         // check for empty branches
-
         for (const branch of branches.sort()) {
             const currentMarker = branch == currentBranch ? "* " : "  ";
             process.stdout.write(`${ currentMarker }${ branch }\n`);
@@ -230,81 +288,26 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
     }
 }
 
-export async function checkout(branchName?: string, createBranch?: boolean) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-
-    const previousBranch = await _getCurrentBranch(repo);
-    let filesToClear = new Set<string>();
-    let previousCommitHash;
-
-    try {
-        previousCommitHash = await _getBranchCommit(repo, previousBranch);
-        if (previousCommitHash) {
-            const previousCommit = (await TrakObjectsBase.readObject(repo, previousCommitHash)) as TrakCommit;
-            if (previousCommit.treeHash) {
-                // Populate files recursively
-                filesToClear = await _getFilesFromTree(repo, previousCommit.treeHash);
-            }
-        }
-    } catch (error) {
-        filesToClear = new Set();
-    }
-
-    if (!branchName || branchName === previousBranch) {
-        for (const file of filesToClear) {
-            process.stdout.write(`M\t${ file }\n`);
-        }
-        
-        if (branchName === previousBranch) {
-            process.stdout.write(`Already on '${branchName}'\n`);
-        }
-
-        process.stdout.write(`Your branch is up to date with '${ previousBranch }'\n`);
-    } else {
-        const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
-        if (!branchFile)
-            throw new Error('heads folder is missing');
-
-        if (!TrakRepository.exists(branchFile)) {
-            if (createBranch) {
-                if (previousCommitHash) {
-                    await _setBranchCommit(repo, branchName, previousCommitHash);
-                    process.stdout.write(`Created new branch ${ branchName }\n`);
-                } else {
-                    process.stdout.write('No commits yet, cannot create branch\n');
-                }
-            } else {
-                process.stdout.write(`Branch ${ branchName } not found\n`);
-                return;
-            }
-        }
-
-        const headFilePath = await TrakRepository.repoFile(repo, true, "HEAD");
-        if (!headFilePath)
-            throw new Error('HEAD file is missing');
-
-        await TrakRepository.writeFile(headFilePath, `ref: refs/heads/${branchName}\n`);
-        await _restoreWorkingDirectory(repo, branchName, filesToClear);
-    }
-}
-
 // ************************************************************************************************/
 // Helper functions
+
+async function _getStatus(repo: TrakRepository) {}
 
 async function _getFilesFromTree(repo: TrakRepository, treeHash: string, prefix: string = ""): Promise<Set<string>> {
     let files = new Set<string>();
 
     try {
         const treeObject = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
-        const tree = TrakTree.deserialize(treeObject.content);
-        for (const { mode, name, oid } of tree.entries) {
+
+        for (const { mode, name, oid } of treeObject.entries) {
+            // Compute relative file path
             const fullPath = join(prefix, name);
             if (mode.startsWith("100")) {
                 files.add(fullPath);
-            } else if (mode.startsWith("400")) {
+            } else if (mode.startsWith("040")) {
+                // Recurse into directories
                 const subTreeFiles = await _getFilesFromTree(repo, oid, fullPath);
+                // Merge files and sub directory files
                 files = new Set([...files, ...subTreeFiles]);
             }
         }
@@ -315,56 +318,51 @@ async function _getFilesFromTree(repo: TrakRepository, treeHash: string, prefix:
     return files;
 }
 
-async function _restoreWorkingDirectory(repo: TrakRepository, branch: string, filesToClear: Set<string>) {
-    const targetCommitHash = await _getBranchCommit(repo, branch);
-
+async function _restoreWorkingDirectory(repo: TrakRepository, branchName: string, filesToClear: Set<string>) {
+    const targetCommitHash = await TrakRefs.getBranchCommit(repo, branchName);
     if (!targetCommitHash)
         return
 
     for (const relativePath of [...filesToClear].sort()) {
-        const fullPath = await TrakRepository.repoFile(repo, false, repo.workTree, relativePath);
-        if (!fullPath)
-            continue
+        // Compute file path
+        const fullPath = join(repo.workTree, relativePath);
+
         try {
-            if (!TrakRepository.exists(fullPath))
+            // Skip if file does not exist
+            if (!TrakFileSystem.exists(fullPath))
                 continue;
 
-            await TrakRepository.removeFile(repo, fullPath, true);
+            await TrakFileSystem.removeFile(fullPath, repo.workTree);
         } catch (error) {
+            console.log('Inside', error);
             // Ignore error
         }
     }
 
     const targetCommitObject = (await TrakObjectsBase.readObject(repo, targetCommitHash)) as TrakCommit;
-    const targetCommit = TrakCommit.deserialize(targetCommitObject.content);
-
-    if (targetCommit.treeHash) {
-        await _restoreTree(repo, targetCommit.treeHash, repo.workTree);
+    if (targetCommitObject.treeHash) {
+        await _restoreTree(repo, targetCommitObject.treeHash, repo.workTree);
     }
 
-    await TrakIndex.saveIndex(repo, {});
+    await TrakIndex.clearIndex(repo);
 }
 
 async function _restoreTree(repo: TrakRepository, treeHash: string, pathPrefix: string) {
     const treeObject = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
-    const tree = TrakTree.deserialize(treeObject.content);
 
-    for (const { mode, name, oid } of tree.entries) {
+    for (const { mode, name, oid } of treeObject.entries) {
+        // Compute file path
+        const fullPath = join(pathPrefix, name);
+
         if (mode.startsWith("100")) {
-            // Compute file path
-            const fullPath = await TrakRepository.repoFile(repo, true, pathPrefix, name);
-            if (!fullPath) 
-                continue;
             // Read blob object from hash
             const blobObject = (await TrakObjectsBase.readObject(repo, oid)) as TrakBlob;
             const blob = TrakBlob.deserialize(blobObject.content);
             // Write blob content to file
-            await TrakRepository.writeFile(fullPath, blob.content);
+            await TrakFileSystem.writeFile(fullPath, blob.content);
         } else if (mode.startsWith("040")) {
-            // Compute directory path
-            const fullPath = await TrakRepository.repoDir(repo, true, pathPrefix, name);
-            if (!fullPath)
-                continue;
+            // Create directory if absent
+            await mkdir(fullPath, { recursive: true });
             // Recurse of directory path
             await _restoreTree(repo, oid, fullPath);
         }
@@ -424,8 +422,12 @@ async function _createTreeRecursive(repo: TrakRepository, dirTree: DirTree, pref
     for (const [name, content] of Object.entries(dirTree)) {
         const path = join(prefix, name);
         if (typeof content === 'string') {
-            const stats = TrakRepository.stats(path);
-            tree.addEntry({ mode: stats.mode.toString(8), name, oid: content });
+            const stats = TrakFileSystem.stats(path);
+            tree.addEntry({ 
+                mode: stats.isSymbolicLink() ? SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE, 
+                name, 
+                oid: content 
+            });
         } else if (typeof content === 'object') {
             const subtreeHash = await _createTreeRecursive(repo, content, path);
             tree.addEntry({ mode: DIRECTORY_MODE, name, oid: subtreeHash });
@@ -437,7 +439,7 @@ async function _createTreeRecursive(repo: TrakRepository, dirTree: DirTree, pref
 
 async function _addFile(filePath: string, repo: TrakRepository) {
     // Read the file content
-    const fileData = await TrakRepository.readFile(filePath);
+    const fileData = await TrakFileSystem.readFile(filePath);
     // Create and Store blob object in database
     const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
     // Load index file json contents
@@ -464,12 +466,12 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
             // Resolve full path for directory entry
             const fullPath = join(currentDir, entry);
 
-            if (TrakRepository.isDirectory(fullPath)) {
+            if (TrakFileSystem.isDirectory(fullPath)) {
                 // Push to stack if path is a directory
                 stack.push(fullPath);
             } else {
                 // Read the file content
-                const fileData = await TrakRepository.readFile(fullPath);
+                const fileData = await TrakFileSystem.readFile(fullPath);
                 // Create and store blob object from content
                 const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
                 // Update index map of blob hash to file path: [path] -> indexEntry
@@ -480,39 +482,4 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
 
     // Save map of files to index file
     await TrakIndex.saveIndex(repo, indexJSON);
-}
-
-async function _getCurrentBranch(repo: TrakRepository): Promise<string> {
-    const headFilePath = await TrakRepository.repoFile(repo, true, "HEAD");
-    if (!headFilePath || !TrakRepository.exists(headFilePath))
-        return "master";
-
-    const headContent = (await TrakRepository.readFile(headFilePath)).toString().trim();
-    const prefix = 'ref: refs/heads/';
-    if (headContent.startsWith(prefix))
-        return headContent.substring(prefix.length)
-
-    // detached HEAD
-    return "HEAD";
-}
-
-async function _getBranchCommit(repo: TrakRepository, currentBranch: string) {
-    const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
-    if (!headsDir) 
-        return
-
-    // Construct branch file path
-    const branchFile = join(headsDir, currentBranch);
-    // Validate the existence of the file
-    if (TrakRepository.exists(branchFile))
-        return (await TrakRepository.readFile(branchFile)).toString().trim();
-}
-
-async function _setBranchCommit(repo: TrakRepository, currentBranch: string, commitHash: string) {
-    const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
-    if (!headsDir) 
-        return
-
-    const branchFile = join(headsDir, currentBranch);
-    await TrakRepository.writeFile(branchFile, commitHash);
 }

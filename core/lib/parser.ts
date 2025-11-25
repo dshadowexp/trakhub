@@ -15,16 +15,12 @@ export async function parse(args: string[]) {
             await add(args[1]);
         } else if (args[0] === 'commit') {
             const author = new TrakAuthor('Trak User', 'user@trak.com');
-            await commit(args[1], author);
+            await commit(args[1], author, author);
         } else if (args[0] === 'log') {
             await log();
         } else if (args[0] === 'checkout') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             const option = args.slice(1).length > 1;
-            if (!name) {
-                await checkout();
-                return;
-            }
             await checkout(name, option);
         } else if (args[0] === 'branch') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];
@@ -40,7 +36,7 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'pull') {
 
         } else if (args[0] === 'push') {
-            
+
         }
     } catch (error) {
         console.log(error);

@@ -6,6 +6,7 @@ import { createDeflate, createInflate } from "zlib";
 import { Readable, Writable } from "stream";
 import { TrakRepository } from "./repository";
 import { getTimezone } from './util';
+import { TrakFileSystem } from './file-system';
 
 export class TrakObjectsBase {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
@@ -17,7 +18,7 @@ export class TrakObjectsBase {
             const objectFilePath = await TrakRepository.repoFile(repo, true, "objects",  objectHash.substring(0, 2), objectHash.substring(2));
 
             // Ensure directory exists
-            if (objectFilePath && !TrakRepository.exists(objectFilePath)) {
+            if (objectFilePath && !TrakFileSystem.exists(objectFilePath)) {
                 const result = Buffer.concat([Buffer.from(`${object.type} ${object.content.byteLength}\0`), object.content]);
         
                 await pipeline(
@@ -34,10 +35,10 @@ export class TrakObjectsBase {
     static async readObject(repo: TrakRepository, hash: string) {
         const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
 
-        if (!path || !TrakRepository.exists(path))
+        if (!path || !TrakFileSystem.exists(path))
             throw new Error(`Object ${hash} not found`);
 
-        if (!TrakRepository.isFile(path))
+        if (!TrakFileSystem.isFile(path))
             return null;
 
         const chunks: Buffer[] = [];

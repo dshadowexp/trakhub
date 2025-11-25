@@ -1,27 +1,33 @@
 import { TrakFileSystem } from "./file-system";
 import { TrakRepository } from "./repository";
+import { isValidSHA } from "./util";
 
 export class TrakRefs {
+    static async branchExists(repo: TrakRepository, branchName: string) {
+        const refsFilePath = (await TrakRepository.repoFile(repo, false, "refs", "heads", branchName))!;
+        return TrakFileSystem.exists(refsFilePath);
+    }
+    
     static async resolve(repo: TrakRepository, ref: string) {
         // Check if it's a branch
         const refsFilePath = (await TrakRepository.repoFile(repo, false, "refs", "heads", ref))!;
         if (TrakFileSystem.exists(refsFilePath))
-            return TrakFileSystem.readFile(refsFilePath);
+            return (await TrakFileSystem.readFile(refsFilePath)).toString();
         
         // Check if it's a tag
         const tagsFilePath = (await TrakRepository.repoFile(repo, false, "refs", "tags", ref))!;
         if (TrakFileSystem.exists(tagsFilePath))
-            return TrakFileSystem.readFile(tagsFilePath);
+            return (await TrakFileSystem.readFile(tagsFilePath)).toString();
         
         // Check if it's a direct SHA
-        if(ref === 'Is valid sha')
-            return ref
+        if(isValidSHA(ref))
+            return ref;
         
         // Check HEAD
         if (ref == "HEAD")
-            return ''//dereference_symbolic_ref("HEAD")
+            return ''; //dereference_symbolic_ref("HEAD")
         
-        return null
+        return null;
     }
 
     static async setCurrentBranch(repo: TrakRepository, branchName: string) {

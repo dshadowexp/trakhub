@@ -24,3 +24,7 @@ export function formatGitDate(timestamp: number): string {
     
     return `${dayName} ${monthName} ${day} ${hours}:${minutes}:${seconds} ${year} ${timezone}`;
 }
+
+export function isValidSHA(sha: string) {
+    return /^[a-fA_F0-9]{40}$/.test(sha);
+}

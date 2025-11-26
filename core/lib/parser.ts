@@ -1,4 +1,4 @@
-import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch, status } from "./commands";
+import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch, status } from "./shared-helpers";
 import { TrakAuthor } from "./types";
 
 export async function parse(args: string[]) {

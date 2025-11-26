@@ -68,4 +68,19 @@ export class TrakRepository {
 
         return await this.repoFind(parent, required);
     }
+
+    static async isRepoIgnore(repo: TrakRepository, filePath: string) {
+        const ignoreFile = join(repo.workTree, ".gitignore");
+        if (TrakFileSystem.exists(ignoreFile))
+            return false
+
+        const ignorePatterns = (await TrakFileSystem.readFile(ignoreFile)).toString().split("\n");
+        for (let pattern of ignorePatterns) {
+            pattern = pattern.trim();
+            if (pattern === "" || pattern.startsWith("#"))
+                continue;
+
+            
+        }
+    }
 }

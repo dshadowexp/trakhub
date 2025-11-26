@@ -1,4 +1,4 @@
-import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch } from "./commands";
+import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch, status } from "./commands";
 import { TrakAuthor } from "./types";
 
 export async function parse(args: string[]) {
@@ -28,7 +28,7 @@ export async function parse(args: string[]) {
   
             await branch(name, option)
         } else if (args[0] === 'status') {
-
+            await status();
         } else if (args[0] === 'merge') {
 
         } else if (args[0] === 'clone') {

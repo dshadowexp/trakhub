@@ -1,15 +1,13 @@
 import { mkdir, readdir } from "fs/promises";
 import { dirname, join, relative, resolve } from "path";
 import type { TrakAuthor, DirTree, TrakTreeEntry, TrakIndexRecord } from "./types";
-import { DIRECTORY_MODE, EXECUTABLE_FILE_MODE, REGULAR_FILE_MODE, SYMBOLIC_LINK } from "./constants";
+import { DIRECTORY_MODE, EXECUTABLE_FILE_MODE, IGNORE, REGULAR_FILE_MODE, SYMBOLIC_LINK } from "./constants";
 import { TrakRepository } from "./repository";
 import { TrakBlob, TrakCommit, TrakObject, TrakTree, TrakObjectsBase } from "./objects";
 import { TrakIndex } from "./t-index";
 import { difference, formatGitDate } from "./util";
 import { TrakRefs } from "./refs";
 import { TrakFileSystem } from "./file-system";
-
-const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'test2.txt'];
 
 export async function createRepo(path: string) {
     const repo = new TrakRepository(path, true);
@@ -291,6 +289,18 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
             process.stdout.write(`${ currentMarker }${ branch }\n`);
         }
     }
+}
+
+export async function status() {
+    const repo = await TrakRepository.repoFind();
+    if (!repo)
+        return;
+
+    const allFiles = await TrakFileSystem.listFiles(repo.workTree);
+    console.log('all -', allFiles);
+
+    const trackedFiles = await TrakIndex.loadIndex(repo);
+    console.log('tracked -', Object.keys(trackedFiles));
 }
 
 // ************************************************************************************************/

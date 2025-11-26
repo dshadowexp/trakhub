@@ -2,7 +2,8 @@ import { createReadStream, createWriteStream, existsSync, statSync } from "fs";
 import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
-import { dirname } from "path";
+import { dirname, join, relative } from "path";
+import { IGNORE } from "./constants";
 
 export class TrakFileSystem {
     static exists(path: string) {
@@ -60,5 +61,25 @@ export class TrakFileSystem {
                 }
             }
         }
+    }
+
+    static async listFiles(directory: string) {
+        const files: string[] = [];
+        const stack: string[] = [ directory ];
+
+        while (stack.length > 0) {
+            const currentDirectory = stack.pop()!;
+
+            for (const dirEntry of (await readdir(currentDirectory, { withFileTypes: true })).filter((element) => !IGNORE.includes(element.name))) {
+                if (dirEntry.isFile()) {
+                    const { name, parentPath } = dirEntry;
+                    files.push(relative(directory, join(parentPath, name)));
+                } else if (dirEntry.isDirectory()) {
+                    stack.push(dirEntry.name)
+                }
+            }
+        }
+
+        return files;
     }
 }

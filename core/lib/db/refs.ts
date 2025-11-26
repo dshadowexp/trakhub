@@ -1,6 +1,6 @@
-import { TrakFileSystem } from "./file-system";
-import { TrakRepository } from "./repository";
-import { isValidSHA } from "./util";
+import { TrakFileSystem } from "../file-system";
+import { TrakRepository } from "../repository";
+import { isValidSHA } from "../util";
 
 export class TrakRefs {
     static async branchExists(repo: TrakRepository, branchName: string) {

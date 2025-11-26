@@ -62,7 +62,7 @@ export class TrakIndex {
             return;
 
         //const header = Buffer.concat([Buffer.from(signature), Buffer.from(version.toString()), Buffer.from(index.length)]);
-        const rawEntries = Object.entries(indexEntries).map(([path, oid]) => TrakIndex._createIndexEntry(path, oid));
+        // const rawEntries = Object.entries(indexEntries).map(([path, oid]) => TrakIndex._createIndexEntry(path, oid));
         // console.log(rawEntries);
         
         try {

@@ -1,5 +1,16 @@
-import { createRepo, catFile, hashObject, add, commit, lsTree, log, checkout, branch, status } from "./shared-helpers";
+
+import { add } from "./cmds/add";
+import { branch } from "./cmds/branch";
+import { catFile } from "./cmds/cat-file";
+import { checkout } from "./cmds/checkout";
+import { commit } from "./cmds/commit";
+import { hashObject } from "./cmds/hash-object";
+import { createRepo } from "./cmds/init";
+import { log } from "./cmds/log";
+import { lsTree } from "./cmds/ls-tree";
+import { status } from "./cmds/status";
 import { TrakAuthor } from "./types";
+
 
 export async function parse(args: string[]) {
     try {

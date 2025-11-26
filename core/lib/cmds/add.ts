@@ -33,9 +33,9 @@ export async function add(path: string) {
  */
 async function _addFile(filePath: string, repo: TrakRepository) {
     // Read the file content
-    const fileData = await TrakFileSystem.readFile(filePath);
+    const fileContent = await TrakFileSystem.readFile(filePath);
     // Create and Store blob object in database
-    const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
+    const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
     // Load index file json contents
     const indexJSON = await TrakIndex.loadIndex(repo);
     // Map blob hash to file path: [path] -> hash
@@ -70,9 +70,9 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
                 stack.push(fullPath);
             } else {
                 // Read the file content
-                const fileData = await TrakFileSystem.readFile(fullPath);
+                const fileContent = await TrakFileSystem.readFile(fullPath);
                 // Create and store blob object from content
-                const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
+                const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
                 // Update index map of blob hash to file path: [path] -> indexEntry
                 indexJSON[relative(repo.workTree, fullPath)] = blobHash;
             }

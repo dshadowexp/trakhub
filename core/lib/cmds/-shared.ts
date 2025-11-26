@@ -1,8 +1,8 @@
 import { join } from "path";
-import type { TrakTreeEntry } from "./types";
-import { TrakRepository } from "./repository";
-import { TrakCommit, TrakTree, TrakObjectsBase } from "./db/objects";
-import { TrakRefs } from "./db/refs";
+import type { TrakTreeEntry } from "../types";
+import { TrakRepository } from "../repository";
+import { TrakCommit, TrakTree, TrakObjectsBase } from "../db/objects";
+import { TrakRefs } from "../db/refs";
 
 
 // ************************************************************************************************/
@@ -59,4 +59,46 @@ async function _extractFilesFromTree(repo: TrakRepository, treeHash: string, pre
 
     return files;
 }
+
+/**
+ * 
+ * @param repo 
+ * @param ancestorSha 
+ * @param descendantSha 
+ * @returns 
+ */
+export async function isAncestor(repo: TrakRepository, ancestorSha: string, descendantSha: string): Promise<boolean> {
+    const visited = new Set<string>();
+    const queue: string[] = [descendantSha];
+
+    while (queue.length > 0) {
+        const currentSha = queue.shift()!;
+
+        if (currentSha === ancestorSha) {
+            return true;
+        }
+
+        if (visited.has(currentSha)) {
+            continue;
+        }
+
+        visited.add(currentSha);
+
+        // Load the commit object
+        const commit = (await TrakObjectsBase.readObject(
+            repo,
+            currentSha
+        )) as TrakCommit;
+
+        // commit._parentHashes is an array of parent SHAs
+        if (commit.parentHashes && commit.parentHashes.length > 0) {
+            for (const parent of commit.parentHashes) {
+                queue.push(parent);
+            }
+        }
+    }
+
+    return false;
+}
+
 

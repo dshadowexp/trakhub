@@ -1,4 +1,4 @@
-import { getBranchCommitFiles } from "../shared-helpers";
+import { getBranchCommitFiles } from "./-shared";
 import { TrakFileSystem } from "../file-system";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
@@ -22,33 +22,33 @@ export async function status() {
     }, {});
 
     // Load index (Staging area)
-    const indexFiles = await TrakIndex.loadIndex(repo);
+    const indexEntries = await TrakIndex.loadIndex(repo);
 
     // 3. Scan working directory
     const workingFiles = await TrakFileSystem.listFiles(repo.workTree);
 
     // 4. COMPARE HEAD vs INDEX (staged changes)
     // Files added to index, not in HEAD
-    const stagedNew: string[] = difference<string>(Object.keys(indexFiles), Object.keys(committedFiles));
+    const stagedNew: string[] = difference<string>(Object.keys(indexEntries), Object.keys(committedFiles));
     // Files in both, but different content    
-    const stagedModified: string[] = intersection<string>(Object.keys(indexFiles), Object.keys(committedFiles)).filter((filePath) => indexFiles[filePath] != committedFiles[filePath].oid);
+    const stagedModified: string[] = intersection<string>(Object.keys(indexEntries), Object.keys(committedFiles)).filter((filePath) => indexEntries[filePath] != committedFiles[filePath].oid);
     // Files in HEAD but not in index (deleted)
-    const stagedDeleted: string[] = difference<string>(Object.keys(committedFiles), Object.keys(indexFiles));
+    const stagedDeleted: string[] = difference<string>(Object.keys(committedFiles), Object.keys(indexEntries));
    
     // 5. COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
     // Files in index, but modified in working dir
-    const unstagedModified = await asyncFilter<string>(intersection<string>(Object.keys(indexFiles), workingFiles), async (filePath) => {
+    const unstagedModified = await asyncFilter<string>(intersection<string>(Object.keys(indexEntries), workingFiles), async (filePath) => {
         // Read the file content
         const fileData = await TrakFileSystem.readFile(filePath);
         // Create and Store blob object in database
         const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileData), repo);
         // Compare SHA1 hash of files
-        return blobHash != indexFiles[filePath];
+        return blobHash != indexEntries[filePath];
     })
     // Files in index, but deleted from working dir
-    const unstagedDeleted = difference<string>(Object.keys(indexFiles), workingFiles);   
+    const unstagedDeleted = difference<string>(Object.keys(indexEntries), workingFiles);   
     // Files in working dir, not in index
-    const untracked = difference<string>(workingFiles, Object.keys(indexFiles));
+    const untracked = difference<string>(workingFiles, Object.keys(indexEntries));
     
     // 6. DISPLAY RESULTS
     function printFilesList(filesList: string[], prefix: string) {

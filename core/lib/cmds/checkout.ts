@@ -1,6 +1,6 @@
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { getBranchCommitFiles } from "../shared-helpers";
+import { getBranchCommitFiles } from "./-shared";
 import { TrakFileSystem } from "../file-system";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
@@ -17,6 +17,11 @@ export async function checkout(targetBranch: string, createBranch?: boolean) {
     // Get current branch
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
     const filesInCurrent = await getBranchCommitFiles(repo, currentBranch);
+
+    // Check for uncommitted changes
+    if (await _hasUncommittedChanges(repo, filesInCurrent)) {
+        throw new Error("Your local changes to the following files would be overwritten by checkout");
+    }
 
     if (!targetBranch || targetBranch === currentBranch) {
         for (const fileContent of filesInCurrent) {
@@ -107,8 +112,42 @@ async function _restoreWorkingDirectory(repo: TrakRepository, filesToClear: stri
                 continue;
             // Remove file and all empty parent directories
             await TrakFileSystem.removeFile(fullPath, repo.workTree);
-        } catch (error) {
-            console.log('Inside _restoreWorkingDirectory:', error); // Ignore error
-        }
+        } catch (error) {}
     }
+}
+
+/**
+ * 
+ * Check if working directory or index differs from HEAD
+ * 
+ * @param repo 
+ * @param treeEntries 
+ * @returns 
+ */
+async function _hasUncommittedChanges(repo: TrakRepository, treeEntries: TrakTreeEntry[]): Promise<boolean> {
+    // Load index (Staging area)
+    const indexEntries = await TrakIndex.loadIndex(repo);
+
+    // Compare working directory with index
+    for (const [filePath, blobHash] of Object.entries(indexEntries)) {
+        const fileContent = await TrakFileSystem.readFile(filePath);
+        const fileHash = (new TrakBlob(fileContent)).hash();
+        if (blobHash != fileHash) 
+            return true;
+    }
+
+    // Compare index with HEAD commit
+    const committedFiles: Record<string, TrakTreeEntry> = treeEntries.reduce((current, value) => {
+        return { ...current, [value.name]: value }
+    }, {});
+    const stagedNew: string[] = difference<string>(Object.keys(indexEntries), Object.keys(committedFiles));
+    if (stagedNew.length > 0)
+        return true;
+
+    for (const filePath of Object.keys(indexEntries)) {
+        if (indexEntries[filePath] !== committedFiles[filePath].oid)
+            return true;
+    }
+
+    return false;
 }

@@ -1,12 +1,12 @@
 import { createHash } from 'crypto';
-import { TrakAuthor, type TrakTreeEntry } from './types';
+import { TrakAuthor, type TrakTreeEntry } from '../types';
 import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { createDeflate, createInflate } from "zlib";
 import { Readable, Writable } from "stream";
-import { TrakRepository } from "./repository";
-import { getTimezone } from './util';
-import { TrakFileSystem } from './file-system';
+import { TrakRepository } from "../repository";
+import { getTimezone } from '../util';
+import { TrakFileSystem } from '../file-system';
 
 export class TrakObjectsBase {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {

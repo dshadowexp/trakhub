@@ -2,5 +2,6 @@
   "one1.txt": "528b23730bd7273e18a20c24331f0f62d9788986",
   "one2.txt": "27e0244e65f104df1da2df14be0a8d83e52a0acc",
   "test.txt": "d9de15abd1f4d91fd094482bb70e24a3503bfd32",
-  "testf/test1.txt": "5bc0859e1c0cf1c789cf22a3b6569b1d969ce3b6"
+  "testf/test1.txt": "5bc0859e1c0cf1c789cf22a3b6569b1d969ce3b6",
+  "notCommitted.txt": "d5afa6a7abccf53813373c0ce8cf19012527ff2b"
 }

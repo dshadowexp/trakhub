@@ -55,7 +55,7 @@ export class TrakRefs {
     static async getBranchCommit(repo: TrakRepository, branchName: string) {
         // Construct branch file path
         const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
-        if (!branchFile) 
+        if (!branchFile || !TrakFileSystem.exists(branchFile)) 
             return
 
         return (await TrakFileSystem.readFile(branchFile)).toString().trim();

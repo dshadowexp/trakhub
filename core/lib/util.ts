@@ -25,6 +25,11 @@ export function formatGitDate(timestamp: number): string {
     return `${dayName} ${monthName} ${day} ${hours}:${minutes}:${seconds} ${year} ${timezone}`;
 }
 
+export function difference<T>(a: T[], b: T[]): T[] {
+    const setB = new Set(b);
+    return a.filter(x => !setB.has(x));
+}
+
 export function isValidSHA(sha: string) {
     return /^[a-fA_F0-9]{40}$/.test(sha);
 }

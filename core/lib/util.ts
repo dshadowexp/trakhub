@@ -30,6 +30,19 @@ export function difference<T>(a: T[], b: T[]): T[] {
     return a.filter(x => !setB.has(x));
 }
 
+export function intersection<T>(a: T[], b: T[]): T[] {
+    const setB = new Set(b);
+    return a.filter(x => setB.has(x));
+}
+
+export async function asyncFilter<T>(
+  arr: T[],
+  predicate: (item: T) => Promise<boolean>
+): Promise<T[]> {
+  const results = await Promise.all(arr.map(predicate));
+  return arr.filter((_, index) => results[index]);
+}
+
 export function isValidSHA(sha: string) {
     return /^[a-fA_F0-9]{40}$/.test(sha);
 }

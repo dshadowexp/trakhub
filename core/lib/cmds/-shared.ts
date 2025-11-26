@@ -4,7 +4,6 @@ import { TrakRepository } from "../repository";
 import { TrakCommit, TrakTree, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 
-
 // ************************************************************************************************/
 // Helper functions
 

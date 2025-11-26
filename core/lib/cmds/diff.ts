@@ -1,3 +1,11 @@
+import { TrakRepository } from "../repository";
+
+async function diff() {
+    const repo = await TrakRepository.repoFind();
+    if (!repo)
+        return;
+}
+
 type DiffOp =
   | { type: "add"; line: string; position: number }
   | { type: "delete"; line: string; position: number }

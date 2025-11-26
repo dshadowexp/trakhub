@@ -24,10 +24,10 @@ export async function status() {
     // Load index (Staging area)
     const indexEntries = await TrakIndex.loadIndex(repo);
 
-    // 3. Scan working directory
+    // Scan working directory
     const workingFiles = await TrakFileSystem.listFiles(repo.workTree);
 
-    // 4. COMPARE HEAD vs INDEX (staged changes)
+    // COMPARE HEAD vs INDEX (staged changes)
     // Files added to index, not in HEAD
     const stagedNew: string[] = difference<string>(Object.keys(indexEntries), Object.keys(committedFiles));
     // Files in both, but different content    
@@ -35,7 +35,9 @@ export async function status() {
     // Files in HEAD but not in index (deleted)
     const stagedDeleted: string[] = difference<string>(Object.keys(committedFiles), Object.keys(indexEntries));
    
-    // 5. COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
+    // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
+    // Files in working dir, not in index
+    const untracked = difference<string>(workingFiles, Object.keys(indexEntries));
     // Files in index, but modified in working dir
     const unstagedModified = await asyncFilter<string>(intersection<string>(Object.keys(indexEntries), workingFiles), async (filePath) => {
         // Read the file content
@@ -47,8 +49,6 @@ export async function status() {
     })
     // Files in index, but deleted from working dir
     const unstagedDeleted = difference<string>(Object.keys(indexEntries), workingFiles);   
-    // Files in working dir, not in index
-    const untracked = difference<string>(workingFiles, Object.keys(indexEntries));
     
     // 6. DISPLAY RESULTS
     function printFilesList(filesList: string[], prefix: string) {

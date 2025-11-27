@@ -40,7 +40,7 @@ export async function checkout(targetBranch: string, createBranch?: boolean) {
                     process.stdout.write('No commits yet, cannot create branch\n');
                 }
             } else {
-                process.stdout.write(`Branch ${ targetBranch } not found\n`);
+                process.stdout.write(`error: pathspec ${ targetBranch } did not match any file(s) known to git\n`);
                 return;
             }
         }

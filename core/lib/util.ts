@@ -35,6 +35,10 @@ export function intersection<T>(a: T[], b: T[]): T[] {
     return a.filter(x => setB.has(x));
 }
 
+export function union<T>(a: T[], b: T[]): T[] {
+    return Array.from(new Set([...a, ...b]));
+}
+
 export async function asyncFilter<T>(
   arr: T[],
   predicate: (item: T) => Promise<boolean>

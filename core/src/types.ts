@@ -1,5 +1,31 @@
+export enum PackFileObjectTypeEnum {
+  RESERVED_0,
+  COMMIT,
+  TREE,
+  BLOB,
+  TAG,
+  RESERVED_5,
+  OFS_DELTA,
+  REF_DELTA,
+}
+
+export enum TrakObjectTypeEnum {
+    COMMIT = "commit",
+    TREE = "tree",
+    BLOB = "blob",
+}
+
+export enum UnixFileModeEnum {
+    REGULAR_FILE = "100644",
+    EXECUTABLE_FILE = "100755",
+    SYMBOLIC_LINK = "120000",
+    DIR = "40000",
+}
+
 export type DirTree = { [name: string]: DirTree | string };
+
 export type TrakTreeEntry = { mode: string, name: string, oid: string };
+
 export type TrakIndexEntry = {
     ctimeSeconds: number;
     ctimeNanoseconds: number;
@@ -15,6 +41,7 @@ export type TrakIndexEntry = {
     flags: number;
     path: string;
 }
+
 export type TrakIndexRecord = Record<string, string>;
 
 export class TrakAuthor {
@@ -34,3 +61,5 @@ export class TrakAuthor {
         return `${ this._name } <${ this._email }>`;
     }
 }
+
+

@@ -1,11 +1,11 @@
 {
   "name": "@trakhub/core",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
   "description": "Build your own Git challenge, from CodeCrafters",
-  "type": "module",
   "scripts": {
     "dev": "bun run lib/main.ts"
   },
-  "devDependencies": {
-    "@types/bun": "latest"
-  }
+  "type": "module"
 }

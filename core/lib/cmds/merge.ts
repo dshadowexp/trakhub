@@ -248,3 +248,7 @@ function _mergeFile(filePath: string, baseEntry: TrakTreeEntry, targetEntry: Tra
         content: ''
     }
 }
+
+function createMergeCommit(targetCommit: string, sourceCommit: string, mergedFiles: Record<string, { hasConflict: boolean, content: string }>, sourceBranch: string) {
+    
+}

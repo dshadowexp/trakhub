@@ -1,13 +1,7 @@
-import { dirname, join } from "path";
-import { mkdir } from "fs/promises";
 import { getBranchCommitFiles, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
 import { TrakFileSystem } from "../file-system";
-import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
-import type { TrakTreeEntry } from "../types";
-import { difference } from "../util";
 
 export async function checkout(targetBranch: string, createBranch?: boolean) {
     const repo = await TrakRepository.repoFind();

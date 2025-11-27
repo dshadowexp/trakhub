@@ -1,9 +1,26 @@
 import { TrakRepository } from "../repository";
+import type { TrakTreeEntry } from "../types";
 
 async function diff() {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
+}
+
+function _printDiffMode(a: TrakTreeEntry, b: TrakTreeEntry) {
+    if (!b.mode) {
+        process.stdout.write(`delete file mode ${ a.mode }\n`);
+    } else if (a.mode !== b.mode) {
+        process.stdout.write(`old mode ${ a.mode }\n`);
+        process.stdout.write(`new mode ${ b.mode }\n`);
+    }
+}
+
+function _printDiffContent(a: TrakTreeEntry, b: TrakTreeEntry) {
+    if (a.oid === b.oid)
+        return;
+
+    const oidRange = [`index ${ a.oid }..${ b.oid }`];
 }
 
 type DiffOp =

@@ -32,7 +32,7 @@ export class TrakObjectsBase {
         return objectHash;
     }
 
-    static async readObject(repo: TrakRepository, hash: string) {
+    static async readObject(repo: TrakRepository, hash: string): Promise<TrakBlob | TrakTree | TrakCommit | null> {
         const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
 
         if (!path || !TrakFileSystem.exists(path))

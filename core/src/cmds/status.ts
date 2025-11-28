@@ -1,4 +1,4 @@
-import { getBranchCommitFiles, getStatus } from "./-shared";
+import { getTreeFilesFromCommit, getStatus } from "./-shared";
 import { FileSystem, Terminal } from "../standard-lib";
 import { TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
@@ -12,10 +12,15 @@ export async function status(isPorcelain: boolean = false) {
         return;
 
     // Get current branch
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+    const currentHeadCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    if (!currentHeadCommit) {
+        Terminal.println(`No commits yet`);
+        return;
+    }
+   
     
     // Get committed files
-    const committedFiles: Record<string, TrakTreeEntry> = (await getBranchCommitFiles(repo, currentBranch)).reduce((current, value) => {
+    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentHeadCommit)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
 
@@ -39,7 +44,7 @@ export async function status(isPorcelain: boolean = false) {
     if (isPorcelain) {
         printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex);
     } else {
-        process.stdout.write(`On branch ${currentBranch}\n`);
+        process.stdout.write(`On branch ${currentHeadCommit}\n`);
         printLongFormat(indexAgainstHead, workingDirAgainstIndex);
     }
 }

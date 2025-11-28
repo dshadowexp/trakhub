@@ -47,8 +47,13 @@ export async function asyncFilter<T>(
   return arr.filter((_, index) => results[index]);
 }
 
-export function isValidSHA(sha: string) {
-    return /^[a-fA_F0-9]{40}$/.test(sha);
+export function isValidSha(sha: string) {
+    return /^[0-9a-f]{4,40}$/i.test(sha);
+}
+
+export function isAbbreviatedSha(ref: string): boolean {
+    if (ref.length < 4 || ref.length >= 40) return false;
+    return /^[0-9a-f]+$/i.test(ref);
 }
 
 export function shortHash(sha: string) {

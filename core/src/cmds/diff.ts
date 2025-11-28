@@ -5,19 +5,22 @@ import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { Terminal, FileSystem } from "../standard-lib";
 import { TrakIndex } from "../db/t-index";
 import { TrakRefs } from "../db/refs";
-import { getBranchCommitFiles, getStatus } from "./-shared";
+import { getTreeFilesFromCommit, getStatus } from "./-shared";
 import { shortHash } from "../util";
 
 const NULL_PATH = "/dev/null";
-type Target = TrakTreeEntry & { data: string };
 type DiffOp =
     | { type: "add"; line: string; position: number }
     | { type: "delete"; line: string; position: number }
     | { type: "context"; line: string };
-
 const diffSymbols = { "add": "+", "delete": "-", "context": " "};
+type Target = TrakTreeEntry & { data: string };
 
-export async function diff(cached: boolean = false) {
+type DiffArgs = {
+    cached?: boolean;
+}
+
+export async function diff(options: DiffArgs = {}) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
@@ -25,7 +28,7 @@ export async function diff(cached: boolean = false) {
     // Load index (Staging area)
     const indexEntries = await TrakIndex.loadIndex(repo);
 
-    if (cached) {
+    if (options.cached) {
         await _diffHeadIndex(repo, indexEntries);
     } else {
         await _diffIndexWorkspace(repo, indexEntries);
@@ -42,7 +45,7 @@ async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecor
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
 
     // Get committed files
-    const committedFiles: Record<string, TrakTreeEntry> = (await getBranchCommitFiles(repo, currentBranch)).reduce((current, value) => {
+    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
 
@@ -105,7 +108,7 @@ async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndex
  */
 async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
     const currentBranch = await TrakRefs.getCurrentBranch(repo); // Fetch head instead
-    const committedFiles: Record<string, TrakTreeEntry> = (await getBranchCommitFiles(repo, currentBranch)).reduce((current, value) => {
+    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
     return await _fromEntry(repo, { name: path, oid: committedFiles[path].oid, mode: "" });

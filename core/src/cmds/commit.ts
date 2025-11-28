@@ -36,7 +36,7 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
     }
 
     // Create commit object
-    const parentHashes = parentCommit !== undefined ? [ parentCommit ] : [];
+    const parentHashes = !parentCommit ? [] : [ parentCommit ];
     const commit = new TrakCommit(treeHash, parentHashes, author, committer, message);
     const commitHash = await TrakObjectsBase.writeObject(commit, repo);;
 

@@ -4,7 +4,7 @@ import { FileSystem } from "../standard-lib";
 import { TrakRepository } from "../repository";
 import type { TrakTreeEntry } from "../types";
 import { intersection, union } from "../util";
-import { extractFilesFromTree, getBranchCommitFiles, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
+import { extractFilesFromTree, getTreeFilesFromCommit, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
 
 export async function merge(sourceBranch: string, noFF: boolean = false) {
     const repo = await TrakRepository.repoFind();
@@ -16,8 +16,8 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
     
     // # 1. VALIDATE STATE
     // Check for uncommitted changes
-    if (await hasUncommittedChanges(repo))
-        throw new Error("Your local changes to the following files would be overwritten by checkout");
+    // if (await hasUncommittedChanges(repo))
+    //     throw new Error("Your local changes to the following files would be overwritten by checkout");
 
     // Check if already in merge state (from previous conflict)
     const mergeHeadFile = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
@@ -181,7 +181,7 @@ async function _fastForwardMerge(repo: TrakRepository, sourceCommit: string, sou
     const sourceTree = await extractFilesFromTree(repo, ((await TrakObjectsBase.readObject(repo, sourceCommit)) as TrakCommit).treeHash);
     
     // # Get current tree
-    const currentTree = await getBranchCommitFiles(repo, currentBranch);
+    const currentTree = await getTreeFilesFromCommit(repo, currentBranch);
     
     // # Update working directory
     await updateWorkingDirectory(repo, currentTree, sourceTree);

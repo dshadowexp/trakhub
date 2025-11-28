@@ -91,7 +91,13 @@ export class TrakObjectsBase {
             default:
                 throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
         }
-    }   
+    }  
+    
+    static async exists(repo: TrakRepository, hash: string): Promise<boolean> {
+        const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
+
+        return path != undefined && FileSystem.exists(path);
+    }
 }
 
 export class TrakObject {

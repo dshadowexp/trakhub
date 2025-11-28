@@ -3,6 +3,7 @@ import { FileSystem, Terminal } from "../standard-lib";
 import { TrakBlob, TrakCommit, TrakObject, TrakObjectsBase, TrakTree } from "../db/objects";
 
 export async function hashObject(path: string, type: TrakObjectTypeEnum, write: boolean = false) {
+    console.log(path);
     const data = await FileSystem.readFile(path);
     const baseObject = new TrakObject(type, data);
     

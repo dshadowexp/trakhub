@@ -26,7 +26,7 @@ export async function log(maxCount: number = 10) {
         Terminal.println(`Date:   ${ formatGitDate(commit.author.timestamp) }`);
         Terminal.println(`\n\t${ commit.message }\n`);
 
-        commitHash = commit.parentHashes.length > 0 ? commit.parentHashes[0] : undefined;
+        commitHash = commit.parentHashes.length > 0 ? commit.parentHashes[0] : null;
         count += 1
     }
 }

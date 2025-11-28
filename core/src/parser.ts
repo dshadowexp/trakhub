@@ -33,14 +33,23 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'diff') {
             await diff(true);
         }  else if (args[0] === 'branch') {
-            const name = args.slice(1).length > 1 ? args[2] : args[1];
-            const option = args.slice(1).length > 1;
+            const name = args[1];
   
-            await branch(name, option)
+            await branch(name, {
+                list: true,
+                verbose: true, 
+                delete: false,
+                forceDelete: false, 
+                create: false,
+                startPoint: '@~1'
+            })
         } else if (args[0] === 'checkout') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             const option = args.slice(1).length > 1;
-            await checkout(name, option);
+            await checkout(name, {
+                createBranch: false,
+                // startPoint: ''
+            });
         } else if (args[0] === 'merge') {
 
         } else if (args[0] === 'pull') {
@@ -52,3 +61,4 @@ export async function parse(args: string[]) {
         console.log(error);
     }
 }
+

@@ -1,60 +1,69 @@
-import { getBranchCommitFiles, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
-import { FileSystem, Terminal } from "../standard-lib";
+import { getTreeFilesFromCommit, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
+import { Terminal } from "../standard-lib";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
+import { TrakCommit, TrakObjectsBase } from "../db/objects";
+import { resolveStartPoint } from "../revision";
 
-export async function checkout(targetBranch: string, createBranch?: boolean) {
+type CheckoutArgs = {
+    createBranch?: boolean,
+    startPoint?: string
+}
+
+export async function checkout(targetRef: string, options: CheckoutArgs) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
 
-    // Get current branch
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    const currentTree = await getBranchCommitFiles(repo, currentBranch);
+    let commitHash;
+    if (options.createBranch) {
+        // Check if branch already exists
+        if (await TrakRefs.branchExists(repo, targetRef))
+            throw new Error(`branch ${targetRef} already exists`);
+
+        // Determine starting point for new branch
+        if (!options.startPoint)
+            options.startPoint = "HEAD";
+
+        // Resolve the starting commit
+        commitHash = await resolveStartPoint(repo, options.startPoint);
+        if (!commitHash)
+            throw new Error(`Not a valid object name: ${options.startPoint}`);
+
+        // Create the new branch pointing to the commit
+        await TrakRefs.setBranchCommit(repo, targetRef, commitHash);
+        Terminal.println(`Created new branch ${ targetRef }`);
+    } else {
+        // Verify the reference exists
+        commitHash = await resolveStartPoint(repo, targetRef);
+        if (!commitHash)
+            throw new Error(`error: pathspec ${ targetRef } did not match any file(s) known to git`);
+    }
+
+    // Extract files in target commit
+    const targetTree = await getTreeFilesFromCommit(repo, commitHash);
+
+    // Resolve and extract files in current commit
+    const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    if (!currentCommit)
+        throw new Error(`Current head commit corrupted`);
+    const currentTree = await getTreeFilesFromCommit(repo, currentCommit);
 
     // Check for uncommitted changes
-    if (await hasUncommittedChanges(repo)) {
+    if (await hasUncommittedChanges(repo, currentTree))
         throw new Error("Your local changes to the following files would be overwritten by checkout");
-    }
+    
+    // Remove files that exist in current branch but not in target branch
+    // Add files from tree
+    await updateWorkingDirectory(repo, currentTree, targetTree);
 
-    if (!targetBranch || targetBranch === currentBranch) {
-        for (const fileContent of currentTree) {
-            Terminal.println(`M\t${ fileContent.name }`);
-        }
+    // Clear current index and rebuild from target branch files
+    await updateIndexFromTree(repo, targetTree);
 
-        if (targetBranch === currentBranch) {
-            Terminal.println(`Already on '${targetBranch}'`);
-        } else {
-            Terminal.println(`Your branch is up to date with '${ currentBranch }'`);
-        }
-    } else {
-        const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", targetBranch);
-
-        if (!FileSystem.exists(branchFile!)) {
-            if (createBranch) {
-                const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
-                if (currentCommit) {
-                    await TrakRefs.setBranchCommit(repo, targetBranch, currentCommit);
-                    Terminal.println(`Created new branch ${ targetBranch }`);
-                } else {
-                    Terminal.println('No commits yet, cannot create branch');
-                }
-            } else {
-                Terminal.println(`error: pathspec ${ targetBranch } did not match any file(s) known to git`);
-                return;
-            }
-        }
-
-        // Extract files in target branch
-        const targetTree = await getBranchCommitFiles(repo, targetBranch);
-        // Remove files that exist in current branch but not in target branch
-        // Add files from tree
-        await updateWorkingDirectory(repo, currentTree, targetTree);
-
-        // Clear current index and rebuild from target branch files
-        await updateIndexFromTree(repo, targetTree);
-
-        // Set HEAD to point to the target branch
-        await TrakRefs.setCurrentBranch(repo, targetBranch);
-    }
+    // Set HEAD to point to the target branch
+    await TrakRefs.setCurrentBranch(repo, targetRef);
+    if (options.createBranch)
+        Terminal.println(`Switched to a new branch ${targetRef}`);
+    else
+        Terminal.println(`Switched to branch ${targetRef}`);
 }

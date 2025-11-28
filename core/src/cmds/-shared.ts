@@ -19,10 +19,8 @@ import { TrakIndex } from "../db/t-index";
  * @param treeEntries 
  * @returns 
  */
-export async function hasUncommittedChanges(repo: TrakRepository): Promise<boolean> {
+export async function hasUncommittedChanges(repo: TrakRepository, currentTree: TrakTreeEntry[]): Promise<boolean> {
     // Load HEAD commit
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    const currentTree = await getBranchCommitFiles(repo, currentBranch);
     const committedFiles: Record<string, TrakTreeEntry> = currentTree.reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
@@ -61,25 +59,6 @@ export async function getStatus(filesA: string[], filesB: string[], getFileAOid:
     const deleted = difference<string>(filesB, filesA);
     
     return [added, modified, deleted];
-}
-
-/**
- * 
- * @param repo 
- * @param branchName 
- * @returns 
- */
-export async function getBranchCommitFiles(repo: TrakRepository, branchName: string): Promise<TrakTreeEntry[]> {
-    try {
-        const commitHash = await TrakRefs.getBranchCommit(repo, branchName);
-        if (!commitHash)
-            return [];
-
-        const commitObject = (await TrakObjectsBase.readObject(repo, commitHash)) as TrakCommit;
-        return await extractFilesFromTree(repo, commitObject.treeHash);
-    } catch (error) {
-        return [];
-    }
 }
 
 /**
@@ -134,6 +113,22 @@ export async function updateIndexFromTree(repo: TrakRepository, tree: TrakTreeEn
 /**
  * 
  * @param repo 
+ * @param branchName 
+ * @returns 
+ */
+export async function getTreeFilesFromCommit(repo: TrakRepository, commitHash: string): Promise<TrakTreeEntry[]> {
+    try {
+        const commitObject = (await TrakObjectsBase.readObject(repo, commitHash)) as TrakCommit;
+        return await extractFilesFromTree(repo, commitObject.treeHash);
+    } catch (error) {
+        return [];
+    }
+}
+
+
+/**
+ * 
+ * @param repo 
  * @param treeHash 
  * @param prefix 
  * @returns 
@@ -158,6 +153,7 @@ export async function extractFilesFromTree(repo: TrakRepository, treeHash: strin
             }
         }
     } catch (error) {
+
         Terminal.println(`Warning: Could not read tree ${treeHash}: ${error}`);
     }
 

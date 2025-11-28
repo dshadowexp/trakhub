@@ -3,39 +3,31 @@ import { FileSystem, Terminal } from "../standard-lib";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { shortHash } from "../util";
+import { resolveStartPoint } from "../revision";
 
-export async function branch(branchName: string, deleteBranch: boolean = false, startPoint: string = '') {
+
+type BranchArgs = { 
+    list?: boolean,
+    verbose?: boolean, 
+    delete?: boolean,
+    forceDelete?: boolean, 
+    create?: boolean,
+    startPoint?: string
+}
+
+export async function branch(branchName: string, options: BranchArgs = {}) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
 
-    if (deleteBranch && branchName) {
-        const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
-        if (!branchFile)
-            return;
-
-        if (FileSystem.exists(branchFile)) {
-            await FileSystem.removeFile(branchFile);
-            Terminal.println(`Delete branch ${ branchName }`);
-        } else {
-            Terminal.println(`Branch ${ branchName } not found`);
-        }
-
-        return;
-    }
-
-    
-    if (branchName) {
-        const currentBranch = await TrakRefs.getCurrentBranch(repo);
-        const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
-        if (currentCommit) {
-            await TrakRefs.setBranchCommit(repo, branchName, currentCommit);
-            Terminal.println(`Created branch ${ branchName }`);
-        } else {
-            Terminal.println('No commits yet, cannot create a new branch');
-        }
+    if (options.list) {
+        await _listBranches(repo, options.verbose)
+    } else if (options.delete) {
+        await _deleteBranch(repo, branchName, options.forceDelete);
+    } else if (options.create) {
+        await _createBranch(repo, branchName, options.startPoint);
     } else {
-        await _listBranches(repo, true);
+        await _listBranches(repo, options.verbose);
     }
 }
 
@@ -66,22 +58,25 @@ async function _listBranches(repo: TrakRepository, verbose: boolean = false) {
     }
 }
 
-async function _createBranch(repo: TrakRepository, branchName: string) {
+async function _createBranch(repo: TrakRepository, branchName: string, startPoint?: string) {
     if (!_isValidBranchName(branchName))
         throw new Error(`${ branchName } is not a valid branch name`);
 
     if (await TrakRefs.branchExists(repo, branchName))
         throw new Error(`A branch named ${ branchName } already exists`);
 
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    if (currentBranch) {
-        const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
-        if (currentCommit) {
-            await TrakRefs.setBranchCommit(repo, branchName, currentCommit);
-            Terminal.println(`Created branch ${ branchName }`);
-        } else {
-            Terminal.println('No commits yet, cannot create a new branch');
-        }
+    let commitHash;
+    if (startPoint) {
+        commitHash = await resolveStartPoint(repo, startPoint);
+    } else {
+        commitHash = await TrakRefs.getCurrentHeadCommit(repo);
+    }
+        
+    if (commitHash) {
+        await TrakRefs.setBranchCommit(repo, branchName, commitHash);
+        Terminal.println(`Created branch ${ branchName }`);
+    } else {
+        Terminal.println('No commits yet, cannot create a new branch');
     }
 }
 

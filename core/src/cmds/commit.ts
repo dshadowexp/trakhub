@@ -3,10 +3,8 @@ import { TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
-import type { DirTree, TrakAuthor, TrakTreeEntry } from "../types";
-import { DIRECTORY_MODE, EXECUTABLE_FILE_MODE, REGULAR_FILE_MODE, SYMBOLIC_LINK } from "../constants";
+import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakTreeEntry } from "../types";
 import { TrakFileSystem } from "../file-system";
-
 
 export async function commit(message: string, author: TrakAuthor, committer: TrakAuthor) {
     const repo = await TrakRepository.repoFind();
@@ -148,7 +146,7 @@ async function _buildTreeRecursive(repo: TrakRepository, dirTree: DirTree, prefi
             const stats = TrakFileSystem.stats(path);
             // Add directly to tree entry
             treeEntries.push({ 
-                mode: stats.isSymbolicLink() ? SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? EXECUTABLE_FILE_MODE : REGULAR_FILE_MODE, 
+                mode: TrakFileSystem.mode(stats), 
                 name, 
                 oid: content 
             });
@@ -156,7 +154,7 @@ async function _buildTreeRecursive(repo: TrakRepository, dirTree: DirTree, prefi
             // Its a subdirectory - recursivley build subtree first
             const subtreeHash = await _buildTreeRecursive(repo, content, path);
             // Collect tree entry
-            treeEntries.push({ mode: DIRECTORY_MODE, name, oid: subtreeHash });
+            treeEntries.push({ mode: UnixFileModeEnum.DIR, name, oid: subtreeHash });
         }
     }
 

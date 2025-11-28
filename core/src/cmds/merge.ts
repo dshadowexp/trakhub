@@ -13,11 +13,10 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
 
     // Get current branch
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    const filesInCurrent = await getBranchCommitFiles(repo, currentBranch);
     
     // # 1. VALIDATE STATE
     // Check for uncommitted changes
-    if (await hasUncommittedChanges(repo, filesInCurrent))
+    if (await hasUncommittedChanges(repo))
         throw new Error("Your local changes to the following files would be overwritten by checkout");
 
     // Check if already in merge state (from previous conflict)

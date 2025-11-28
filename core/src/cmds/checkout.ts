@@ -13,7 +13,7 @@ export async function checkout(targetBranch: string, createBranch?: boolean) {
     const currentTree = await getBranchCommitFiles(repo, currentBranch);
 
     // Check for uncommitted changes
-    if (await hasUncommittedChanges(repo, currentTree)) {
+    if (await hasUncommittedChanges(repo)) {
         throw new Error("Your local changes to the following files would be overwritten by checkout");
     }
 

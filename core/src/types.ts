@@ -19,7 +19,7 @@ export enum UnixFileModeEnum {
     REGULAR_FILE = "100644",
     EXECUTABLE_FILE = "100755",
     SYMBOLIC_LINK = "120000",
-    DIR = "40000",
+    DIR = "040000",
 }
 
 export type DirTree = { [name: string]: DirTree | string };

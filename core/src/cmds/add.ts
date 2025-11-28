@@ -19,7 +19,7 @@ export async function add(path: string) {
         // Add file to object
         await _addFile(fullPath, repo);
     } else if (TrakFileSystem.isDirectory(fullPath)) {
-        // Add directory
+        // Add files in directory
         await _addDirectory(fullPath, repo);
     } else {
         throw new Error(`${fullPath} is neither a file nor directory`);

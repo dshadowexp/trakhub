@@ -1,14 +1,205 @@
+import { join } from "path";
 import { TrakRepository } from "../repository";
-import type { TrakTreeEntry } from "../types";
+import type { TrakIndexRecord, TrakTreeEntry } from "../types";
+import { TrakBlob, TrakObjectsBase } from "../db/objects";
+import { TrakFileSystem } from "../file-system";
+import { TrakIndex } from "../db/t-index";
+import { TrakRefs } from "../db/refs";
+import { getBranchCommitFiles, getStatus } from "./-shared";
 
-async function diff() {
+const NULL_PATH = "/dev/null";
+type Target = TrakTreeEntry & { data: string };
+type DiffOp =
+    | { type: "add"; line: string; position: number }
+    | { type: "delete"; line: string; position: number }
+    | { type: "context"; line: string };
+
+const diffSymbols = { "add": "+", "delete": "-", "context": " "};
+
+export async function diff(cached: boolean = false) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
+
+    // Load index (Staging area)
+    const indexEntries = await TrakIndex.loadIndex(repo);
+
+    if (cached) {
+        await _diffHeadIndex(repo, indexEntries);
+    } else {
+        await _diffIndexWorkspace(repo, indexEntries);
+    }
 }
 
-function _printDiffMode(a: TrakTreeEntry, b: TrakTreeEntry) {
-    if (!b.mode) {
+/**
+ * 
+ * @param repo 
+ * @param indexEntries 
+ */
+async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecord) {
+    // Get current branch
+    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+
+    // Get committed files
+    const committedFiles: Record<string, TrakTreeEntry> = (await getBranchCommitFiles(repo, currentBranch)).reduce((current, value) => {
+        return { ...current, [value.name]: value }
+    }, {});
+
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
+
+    if (stagedNew.length > 0) {
+        for (const path of stagedNew) {
+            _printDiff(_fromNothing(path), await _fromIndex(repo, path));
+        }
+    }
+    
+    if (stagedModified.length > 0) {
+        for (const path of stagedModified) {
+            _printDiff(await _fromHead(repo, path), await _fromIndex(repo, path));
+        }
+    }
+
+    if (stagedDeleted.length > 0) {
+        for (const path of stagedDeleted) {
+            _printDiff(await _fromHead(repo, path), _fromNothing(path));
+        }
+    }
+}
+
+/**
+ * 
+ * @param repo 
+ * @param workingFiles 
+ * @param indexEntries 
+ */
+async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndexRecord) {
+    // Scan working directory
+    const workingFiles = await TrakFileSystem.listFiles(repo.workTree);
+
+    // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
+        const fileData = await TrakFileSystem.readFile(path);
+        const blob = new TrakBlob(fileData);
+        return blob.hash();
+    });
+
+    if (unstagedModified.length > 0) {
+        for (const path of unstagedModified) {
+            _printDiff(await _fromIndex(repo, path), await _fromFile(path));
+        }
+    }
+
+    if (unstagedDeleted.length > 0) {
+        for (const path of unstagedDeleted) {
+            _printDiff(await _fromIndex(repo, path), _fromNothing(path));
+        }
+    }
+}
+
+/**
+ * 
+ * @param repo 
+ * @param path 
+ * @returns 
+ */
+async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
+    const currentBranch = await TrakRefs.getCurrentBranch(repo); // Fetch head instead
+    const committedFiles: Record<string, TrakTreeEntry> = (await getBranchCommitFiles(repo, currentBranch)).reduce((current, value) => {
+        return { ...current, [value.name]: value }
+    }, {});
+    return await _fromEntry(repo, { name: path, oid: committedFiles[path].oid, mode: "" });
+}
+
+/**
+ * 
+ * @param repo 
+ * @param path 
+ * @returns 
+ */
+async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
+    const indexEntries = await TrakIndex.loadIndex(repo);
+    const entry = indexEntries[path];
+    if (!entry)
+        throw new Error(`Entry not found for path ${ path }`);
+
+    return await _fromEntry(repo, { name: path, oid: entry, mode: "" });
+}
+
+/**
+ * 
+ * @param path 
+ * @returns 
+ */
+async function _fromFile(path: string): Promise<Target> {
+    const fileContent = await TrakFileSystem.readFile(path);
+    const blob = new TrakBlob(fileContent);
+    const oid = blob.hash();
+    const mode = TrakFileSystem.stats(path).mode.toString(8);
+    return {
+        name: path,
+        oid,
+        mode,
+        data: fileContent.toString(),
+    };
+}
+
+/**
+ * 
+ * @param path 
+ * @returns 
+ */
+function _fromNothing(path: string): Target {
+    return {
+        name: path,
+        oid: "0".repeat(40), // Null oid
+        mode: "",
+        data: NULL_PATH, // Null path
+    };
+}
+
+/**
+ * 
+ * @param repo 
+ * @param entry 
+ * @returns 
+ */
+async function _fromEntry(repo: TrakRepository, entry: TrakTreeEntry): Promise<Target> {
+    const blob = await TrakObjectsBase.readObject(repo, entry.oid);
+    if (!blob) 
+        throw new Error(`Cannot read object fromEntry ${ entry.oid }`);
+
+    return {
+        name: entry.name,
+        oid: entry.oid,
+        mode: entry.mode,
+        data: blob?.content.toString() || "",
+    }
+}
+
+/**
+ * 
+ * @param a 
+ * @param b 
+ */
+function _printDiff(a: Target, b: Target) {
+    console.log(a, b);
+    const aPath = join("a", a.name);
+    const bPath = join("b", b.name);
+
+    process.stdout.write(`diff --trak ${ aPath } ${ bPath }\n`);
+    _printDiffMode(a, b);
+    _printDiffContent(a, b);
+}
+
+/**
+ * 
+ * @param a 
+ * @param b 
+ */
+function _printDiffMode(a: Target, b: Target) {
+    if (!a.mode) {
+        process.stdout.write(`new file mode ${ b.mode }\n`);
+    } else if (!b.mode) {
         process.stdout.write(`delete file mode ${ a.mode }\n`);
     } else if (a.mode !== b.mode) {
         process.stdout.write(`old mode ${ a.mode }\n`);
@@ -16,18 +207,37 @@ function _printDiffMode(a: TrakTreeEntry, b: TrakTreeEntry) {
     }
 }
 
-function _printDiffContent(a: TrakTreeEntry, b: TrakTreeEntry) {
+/**
+ * 
+ * @param a 
+ * @param b 
+ * @returns 
+ */
+function _printDiffContent(a: Target, b: Target) {
     if (a.oid === b.oid)
         return;
 
-    const oidRange = [`index ${ a.oid }..${ b.oid }`];
+    const oidRange = [`index ${ a.oid.slice(0, 7) }..${ b.oid.slice(0, 7) }`];
+    if (a.mode === b.mode)
+        oidRange.push(`${ a.mode }`);
+
+    process.stdout.write(`${ oidRange.join(' ') }\n`);
+    process.stdout.write(`--- ${ a.mode ? a.name : NULL_PATH }\n`);
+    process.stdout.write(`+++ ${ b.mode ? b.name : NULL_PATH }\n`);
+
+    // display the contents of the difference in the files 
+    // const edits = _myersDiff([], []);
+    // for (const op of edits) {
+    //     process.stdout.write(`${ diffSymbols[op.type] }${ op.line }\n`);
+    // }
 }
 
-type DiffOp =
-  | { type: "add"; line: string; position: number }
-  | { type: "delete"; line: string; position: number }
-  | { type: "context"; line: string };
-
+/**
+ * 
+ * @param original 
+ * @param modified 
+ * @returns 
+ */
 function _myersDiff(original: string[], modified: string[]): DiffOp[] {
     const m = original.length;
     const n = modified.length;
@@ -78,6 +288,14 @@ function _myersDiff(original: string[], modified: string[]): DiffOp[] {
     throw new Error("Myers diff failed unexpectedly");
 }
 
+/**
+ * 
+ * @param trace 
+ * @param original 
+ * @param modified 
+ * @param d 
+ * @returns 
+ */
 function backtrackMyers(trace: number[][], original: string[], modified: string[], d: number): DiffOp[] {
     const m = original.length;
     const n = modified.length;
@@ -144,7 +362,7 @@ function backtrackMyers(trace: number[][], original: string[], modified: string[
     return result;
 }
 
-const original = ["a", "b", "c", "a", "b", "b", "a"];
-const modified = ["c", "b", "a", "b", "a", "c"];
+// const original = ["a", "b", "c", "a", "b", "b", "a"];
+// const modified = ["c", "b", "a", "b", "a", "c"];
 
-console.log(_myersDiff(original, modified));
+// console.log(_myersDiff(original, modified));

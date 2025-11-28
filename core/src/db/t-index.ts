@@ -1,5 +1,4 @@
 import { TrakRepository } from "../repository";
-import { MAX_PATH_SIZE } from "../constants";
 import type { TrakIndexEntry, TrakIndexRecord } from "../types";
 import { TrakFileSystem } from "../file-system";
 
@@ -7,6 +6,7 @@ const HEADER_SIZE = 12;
 const HEADER_FORMAT = "a4N2";
 const SIGNATURE = "DIRC";
 const VERSION = 2;
+const MAX_PATH_SIZE = 0xfff;
 
 export class TrakIndex {
     private static _createIndexEntry(path: string, oid: string): string {
@@ -75,4 +75,8 @@ export class TrakIndex {
     static async clearIndex(repo: TrakRepository) {
         await TrakIndex.saveIndex(repo, {});
     }
+}
+
+class IndexEntry {
+    
 }

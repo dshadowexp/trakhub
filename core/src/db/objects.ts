@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { TrakAuthor, type TrakTreeEntry } from '../types';
+import { TrakAuthor, TrakObjectTypeEnum, type TrakTreeEntry } from '../types';
 import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { createDeflate, createInflate } from "zlib";
@@ -80,13 +80,13 @@ export class TrakObjectsBase {
             process.stdout.write(`Size mismatch: expected ${size}, got ${content.byteLength}\n`);
         }
 
-        const baseObject = new TrakObject(objectType, content);
-        switch(objectType) {
-            case 'blob':
+        const baseObject = new TrakObject(objectType as TrakObjectTypeEnum, content);
+        switch(objectType as TrakObjectTypeEnum) {
+            case TrakObjectTypeEnum.BLOB:
                 return TrakBlob.deserialize(baseObject.content);
-            case 'tree':
+            case TrakObjectTypeEnum.TREE:
                 return TrakTree.deserialize(baseObject.content);
-            case 'commit':
+            case TrakObjectTypeEnum.COMMIT:
                 return TrakCommit.deserialize(baseObject.content);
             default:
                 throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
@@ -98,7 +98,7 @@ export class TrakObject {
     protected _type: string;
     protected _content: Buffer;
 
-    constructor(objType: string, data: Buffer = Buffer.from('')) {
+    constructor(objType: TrakObjectTypeEnum, data: Buffer = Buffer.from('')) {
         this._type = objType;
         this._content = data;
     }
@@ -125,7 +125,7 @@ export class TrakObject {
 
 export class TrakBlob extends TrakObject {
     constructor(data: Buffer) {
-        super("blob", data);
+        super(TrakObjectTypeEnum.BLOB, data);
     }
 
     serialize(): Buffer {
@@ -139,7 +139,7 @@ export class TrakBlob extends TrakObject {
 
 export class TrakTree extends TrakObject {
     constructor(private _entries: TrakTreeEntry[] = []) {
-        super("tree");
+        super(TrakObjectTypeEnum.TREE);
         this._content = this.serialize();
     }
 
@@ -191,7 +191,7 @@ export class TrakCommit extends TrakObject {
         private _committer: TrakAuthor,
         private _message: string,
     ) {
-        super("commit");
+        super(TrakObjectTypeEnum.COMMIT);
         this._content = this.serialize();
     }
 

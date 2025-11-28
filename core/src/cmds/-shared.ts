@@ -3,7 +3,7 @@ import type { TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
-import { difference } from "../util";
+import { asyncFilter, difference, intersection } from "../util";
 import { TrakFileSystem } from "../file-system";
 import { TrakIndex } from "../db/t-index";
 import { mkdir } from "fs/promises";
@@ -19,32 +19,57 @@ import { mkdir } from "fs/promises";
  * @param treeEntries 
  * @returns 
  */
-export async function hasUncommittedChanges(repo: TrakRepository, treeEntries: TrakTreeEntry[]): Promise<boolean> {
+export async function hasUncommittedChanges(repo: TrakRepository): Promise<boolean> {
+    // Load HEAD commit
+    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+    const currentTree = await getBranchCommitFiles(repo, currentBranch);
+    const committedFiles: Record<string, TrakTreeEntry> = currentTree.reduce((current, value) => {
+        return { ...current, [value.name]: value }
+    }, {});
+
     // Load index (Staging area)
     const indexEntries = await TrakIndex.loadIndex(repo);
 
-    // Compare working directory with index
-    for (const [filePath, blobHash] of Object.entries(indexEntries)) {
-        const fileContent = await TrakFileSystem.readFile(filePath);
-        const fileHash = (new TrakBlob(fileContent)).hash();
-        if (blobHash != fileHash) 
-            return true;
-    }
+    // COMPARE HEAD vs INDEX (staged changes)
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
 
-    // Compare index with HEAD commit
-    const committedFiles: Record<string, TrakTreeEntry> = treeEntries.reduce((current, value) => {
-        return { ...current, [value.name]: value }
-    }, {});
-    const stagedNew: string[] = difference<string>(Object.keys(indexEntries), Object.keys(committedFiles));
+    // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
+        const fileData = await TrakFileSystem.readFile(path);
+        const blob = new TrakBlob(fileData);
+        return blob.hash();
+    });
+
+    if (unstagedModified.length > 0)
+        return true;
+
     if (stagedNew.length > 0)
         return true;
 
-    for (const filePath of Object.keys(indexEntries)) {
-        if (indexEntries[filePath] !== committedFiles[filePath].oid)
-            return true;
-    }
+    if (stagedModified.length > 0)
+        return true;
 
     return false;
+}
+
+/**
+ * 
+ * @param filesA 
+ * @param filesB 
+ * @param getFileAOid 
+ * @param getFileBOid 
+ * @returns 
+ */
+export async function getStatus(filesA: string[], filesB: string[], getFileAOid: (path: string) => Promise<string>, getFileBOid: (path: string) => Promise<string>): Promise<[string[], string[], string[]]> {
+    const added = difference<string>(filesA, filesB);
+    const modified = await asyncFilter<string>(intersection<string>(filesA, filesB), async (path) => { 
+        const a = await getFileAOid(path);
+        const b = await getFileBOid(path);
+        return a != b;
+    });
+    const deleted = difference<string>(filesB, filesA);
+    
+    return [added, modified, deleted];
 }
 
 /**

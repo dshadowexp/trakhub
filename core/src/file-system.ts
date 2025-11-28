@@ -1,9 +1,12 @@
-import { createReadStream, createWriteStream, Dirent, existsSync, statSync } from "fs";
+import { createReadStream, createWriteStream, Dirent, existsSync, Stats, statSync } from "fs";
 import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
 import { dirname, join, relative } from "path";
-import { IGNORE } from "./constants";
+import { UnixFileModeEnum } from "./types";
+
+export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb'];
+const ignoreSet = new Set(IGNORE);
 
 export class TrakFileSystem {
     static exists(path: string) {
@@ -12,6 +15,10 @@ export class TrakFileSystem {
 
     static stats(path: string) {
         return statSync(path)
+    }
+
+    static mode(stats: Stats) {
+        return stats.isSymbolicLink() ? UnixFileModeEnum.SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? UnixFileModeEnum.EXECUTABLE_FILE : UnixFileModeEnum.REGULAR_FILE;
     }
 
     static isDirectory(path: string) {
@@ -32,7 +39,6 @@ export class TrakFileSystem {
         });
 
         await pipeline(createReadStream(path), collectStream);
-
         return Buffer.concat(chunks);
     }
 
@@ -65,17 +71,17 @@ export class TrakFileSystem {
 
     static async listFiles(directory: string) {
         const files: string[] = [];
-        const stack: string[] = [ directory ];
+        const stack: string[][] = [ [directory, ''] ];
 
         while (stack.length > 0) {
-            const currentDirectory = stack.pop()!;
+            const [currentDirectory, parent] = stack.pop()!;
 
             for (const dirEntry of (await TrakFileSystem.readDirectory(currentDirectory, true) as Dirent[])) {
+                const { name } = dirEntry;
                 if (dirEntry.isFile()) {
-                    const { name, parentPath } = dirEntry;
-                    files.push(relative(directory, join(parentPath, name)));
+                    files.push(relative(directory, join(parent, name)));
                 } else if (dirEntry.isDirectory()) {
-                    stack.push(dirEntry.name)
+                    stack.push([dirEntry.name, join(parent, name)])
                 }
             }
         }
@@ -85,8 +91,8 @@ export class TrakFileSystem {
 
     static async readDirectory(path: string, withFileTypes: boolean = false ) {
         if (withFileTypes)
-            return (await readdir(path, { withFileTypes: true })).filter((element) => !IGNORE.includes(element.name));
+            return (await readdir(path, { withFileTypes: true })).filter((element) => !ignoreSet.has(element.name));
         else
-            return (await readdir(path)).filter((element) => !IGNORE.includes(element));
+            return (await readdir(path)).filter((element) => !ignoreSet.has(element));
     }
 }

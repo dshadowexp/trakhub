@@ -1,6 +1,6 @@
 import { mkdir, realpath } from "fs/promises";
 import { join } from "path";
-import { FileSystem } from "./standard-lib";
+import { FileSystem } from "./lib/standard";
 
 export class TrakRepository {
     private _trakDir: string;

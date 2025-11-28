@@ -1,6 +1,6 @@
 import { TrakRepository } from "../repository";
 import type { TrakIndexEntry, TrakIndexRecord } from "../types";
-import { FileSystem } from "../standard-lib";
+import { FileSystem } from "../lib/standard";
 
 const HEADER_SIZE = 12;
 const HEADER_FORMAT = "a4N2";

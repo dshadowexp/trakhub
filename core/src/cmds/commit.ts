@@ -4,7 +4,7 @@ import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
 import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakTreeEntry } from "../types";
-import { FileSystem, Terminal } from "../standard-lib";
+import { FileSystem, Terminal } from "../lib/standard";
 
 export async function commit(message: string, author: TrakAuthor, committer: TrakAuthor) {
     const repo = await TrakRepository.repoFind();

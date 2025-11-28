@@ -1,6 +1,6 @@
 import { TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRepository } from "../repository";
-import { Terminal } from "../standard-lib";
+import { Terminal } from "../lib/standard";
 
 export async function lsTree(treeHash: string) {
     const repo = await TrakRepository.repoFind();

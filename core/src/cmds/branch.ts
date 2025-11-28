@@ -1,9 +1,9 @@
 import { TrakRefs } from "../db/refs";
-import { FileSystem, Terminal } from "../standard-lib";
+import { FileSystem, Terminal } from "../lib/standard";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { shortHash } from "../util";
-import { resolveStartPoint } from "../revision";
+import { resolveStartPoint } from "../lib/revision";
 
 
 type BranchArgs = { 

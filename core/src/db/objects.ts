@@ -6,7 +6,7 @@ import { createDeflate, createInflate } from "zlib";
 import { Readable, Writable } from "stream";
 import { TrakRepository } from "../repository";
 import { getTimezone } from '../util';
-import { FileSystem } from '../standard-lib';
+import { FileSystem } from '../lib/standard';
 
 export class TrakObjectsBase {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {

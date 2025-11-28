@@ -31,7 +31,7 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'status') {
             await status();
         } else if (args[0] === 'diff') {
-            await diff(true);
+            await diff();
         }  else if (args[0] === 'branch') {
             const name = args[1];
   

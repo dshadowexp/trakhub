@@ -1,6 +1,6 @@
 import { TrakObjectsBase } from "../db/objects";
 import { TrakRepository } from "../repository";
-import { Terminal } from "../standard-lib";
+import { Terminal } from "../lib/standard";
 
 export async function catFile(objectHash: string) {
     const repo = await TrakRepository.repoFind();

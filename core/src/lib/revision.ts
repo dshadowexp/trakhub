@@ -1,9 +1,9 @@
-import { TrakCommit, TrakObjectsBase } from "./db/objects";
-import { TrakRefs } from "./db/refs";
-import { TrakRepository } from "./repository";
-import { FileSystem } from "./standard-lib";
-import { TrakObjectTypeEnum } from "./types";
-import { isAbbreviatedSha, isValidSha } from "./util";
+import { TrakCommit, TrakObjectsBase } from "../db/objects";
+import { TrakRefs } from "../db/refs";
+import { TrakRepository } from "../repository";
+import { FileSystem } from "./standard";
+import { TrakObjectTypeEnum } from "../types";
+import { isAbbreviatedSha, isValidSha } from "../util";
 
 /*********************************************************************************************************
  * Revision parser/resolver

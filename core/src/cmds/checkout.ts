@@ -1,9 +1,9 @@
 import { getTreeFilesFromCommit, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
-import { Terminal } from "../standard-lib";
+import { Terminal } from "../lib/standard";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
-import { resolveStartPoint } from "../revision";
+import { resolveStartPoint } from "../lib/revision";
 
 type CheckoutArgs = {
     createBranch?: boolean,

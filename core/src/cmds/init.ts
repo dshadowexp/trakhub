@@ -1,5 +1,5 @@
 import { mkdir } from "fs/promises";
-import { FileSystem } from "../standard-lib";
+import { FileSystem } from "../lib/standard";
 import { TrakRepository } from "../repository";
 
 export async function createRepo(path: string) {

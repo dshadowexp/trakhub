@@ -1,6 +1,6 @@
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs"
-import { FileSystem } from "../standard-lib";
+import { FileSystem } from "../lib/standard";
 import { TrakRepository } from "../repository";
 import type { TrakTreeEntry } from "../types";
 import { intersection, union } from "../util";

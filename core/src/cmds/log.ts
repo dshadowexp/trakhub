@@ -1,7 +1,7 @@
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
-import { Terminal } from "../standard-lib";
+import { Terminal } from "../lib/standard";
 import { formatGitDate } from "../util";
 
 export async function log(maxCount: number = 10) {

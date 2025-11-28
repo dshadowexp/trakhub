@@ -1,5 +1,5 @@
 import { getTreeFilesFromCommit, getStatus } from "./-shared";
-import { FileSystem, Terminal } from "../standard-lib";
+import { FileSystem, Terminal } from "../lib/standard";
 import { TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";

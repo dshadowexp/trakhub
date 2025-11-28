@@ -1,5 +1,5 @@
 import { resolve, relative, join } from "path";
-import { FileSystem } from "../standard-lib";
+import { FileSystem } from "../lib/standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";

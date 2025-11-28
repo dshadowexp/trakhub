@@ -1,4 +1,4 @@
-import { FileSystem } from "../standard-lib";
+import { FileSystem } from "../lib/standard";
 import { TrakRepository } from "../repository";
 import { isValidSha } from "../util";
 

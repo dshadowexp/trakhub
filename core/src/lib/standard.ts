@@ -3,8 +3,8 @@ import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
 import { dirname, join } from "path";
-import { UnixFileModeEnum } from "./types";
 import { spawn } from "child_process";
+import { UnixFileModeEnum } from "../types";
 
 export class Terminal {
     /**

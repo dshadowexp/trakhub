@@ -1,11 +1,11 @@
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import type { TrakTreeEntry } from "../types";
+import { UnixFileModeEnum, type TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { asyncFilter, difference, intersection } from "../util";
-import { FileSystem, Terminal } from "../standard-lib";
+import { FileSystem, Terminal } from "../lib/standard";
 import { TrakIndex } from "../db/t-index";
 
 // ************************************************************************************************/

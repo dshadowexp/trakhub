@@ -2,7 +2,7 @@ import { join } from "path";
 import { TrakRepository } from "../repository";
 import type { TrakIndexRecord, TrakTreeEntry } from "../types";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
-import { Terminal, FileSystem } from "../standard-lib";
+import { Terminal, FileSystem } from "../lib/standard";
 import { TrakIndex } from "../db/t-index";
 import { TrakRefs } from "../db/refs";
 import { getTreeFilesFromCommit, getStatus } from "./-shared";

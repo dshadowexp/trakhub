@@ -10,9 +10,6 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
-
-    // Get current branch
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
     
     // # 1. VALIDATE STATE
     // Check for uncommitted changes
@@ -22,11 +19,10 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
     // Check if already in merge state (from previous conflict)
     const mergeHeadFile = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
     if (mergeHeadFile && FileSystem.exists(mergeHeadFile))
-        throw new Error("fatal: You have not concluded your merge (MERGE_HEAD exists).\n" +
-              "Please, commit your changes before you merge.");
+        throw new Error("fatal: You have not concluded your merge (MERGE_HEAD exists).\nPlease, commit your changes before you merge.");
 
     // # 2. RESOLVE BRANCH REFERENCES
-    const targetCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
+    const targetCommit = await TrakRefs.getCurrentHeadCommit(repo);
     const sourceCommit = await TrakRefs.getBranchCommit(repo, sourceBranch);
 
     if (!targetCommit)
@@ -53,7 +49,7 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
             await _threeWayMerge(repo, targetCommit, sourceCommit, mergeBase, sourceBranch);
         else
             // Fast-forward merge
-            await _fastForwardMerge(repo, sourceCommit, sourceBranch);
+            await _fastForwardMerge(repo, sourceCommit);
         return;
     }
 
@@ -69,6 +65,8 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
 }
 
 /**
+ * Find the common ancestor of two commits
+ * This is the commit where the branches diverged
  * 
  * @param repo 
  * @param commit1 
@@ -76,9 +74,6 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
  * @returns 
  */
 async function _findMergeBase(repo: TrakRepository, commit1: string, commit2: string) {
-    // Find the common ancestor of two commits
-    // This is the commit where the branches diverged
-
     // Build ancestor sets for both commits
     const ancestors1 = await _getAllAncestors(repo, commit1);
     const ancestors2 = await _getAllAncestors(repo, commit2);
@@ -171,7 +166,7 @@ async function _commonDistance(repo: TrakRepository, fromCommit: string, toCommi
  * @param sourceCommit 
  * @param sourceBranch 
  */
-async function _fastForwardMerge(repo: TrakRepository, sourceCommit: string, sourceBranch: string) {
+async function _fastForwardMerge(repo: TrakRepository, sourceCommit: string) {
     // Fast-forward: just move HEAD pointer forward
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
     process.stdout.write(`Updating ${ currentBranch }..${sourceCommit.substring(0, 7)}`);

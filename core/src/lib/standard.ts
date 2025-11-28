@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream, Dirent, existsSync, Stats, statSync } from "fs";
+import { chmodSync, createReadStream, createWriteStream, Dirent, existsSync, Stats, statSync } from "fs";
 import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
@@ -97,6 +97,11 @@ export class FileSystem {
      */
     static stats(path: string) {
         return statSync(path)
+    }
+
+    static setPermssions(path: string, mode: string) {
+        const modeConvert = parseInt(mode) & 0o777;
+        chmodSync(path, modeConvert);
     }
 
     /**

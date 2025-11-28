@@ -3,13 +3,13 @@ import { TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRepository } from "../repository";
 import { UnixFileModeEnum, type TrakTreeEntry } from "../types";
 
-enum DiffAction {
+export enum DiffAction {
     ADD = "add",
     DELETE = "delete",
     MODIFY = "modify"
 }
 
-type DiffEntry = {
+export type DiffEntry = {
     action: DiffAction
     path: string
     oldOid?: string

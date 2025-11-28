@@ -1,10 +1,10 @@
-import { Dirent } from "fs";
 import { TrakRefs } from "../db/refs";
-import { TrakFileSystem } from "../file-system";
+import { FileSystem, Terminal } from "../standard-lib";
 import { TrakRepository } from "../repository";
-import { isAncestor } from "./-shared";
+import { TrakCommit, TrakObjectsBase } from "../db/objects";
+import { shortHash } from "../util";
 
-export async function branch(branchName: string, deleteBranch: boolean = false) {
+export async function branch(branchName: string, deleteBranch: boolean = false, startPoint: string = '') {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
@@ -14,36 +14,37 @@ export async function branch(branchName: string, deleteBranch: boolean = false) 
         if (!branchFile)
             return;
 
-        if (TrakFileSystem.exists(branchFile)) {
-            await TrakFileSystem.removeFile(branchFile);
-            process.stdout.write(`Delete branch ${ branchName }\n`);
+        if (FileSystem.exists(branchFile)) {
+            await FileSystem.removeFile(branchFile);
+            Terminal.println(`Delete branch ${ branchName }`);
         } else {
-            process.stdout.write(`Branch ${ branchName } not found`);
+            Terminal.println(`Branch ${ branchName } not found`);
         }
 
         return;
     }
 
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+    
     if (branchName) {
+        const currentBranch = await TrakRefs.getCurrentBranch(repo);
         const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
         if (currentCommit) {
             await TrakRefs.setBranchCommit(repo, branchName, currentCommit);
-            process.stdout.write(`Created branch ${ branchName }\n`);
+            Terminal.println(`Created branch ${ branchName }`);
         } else {
-            process.stdout.write('No commits yet, cannot create a new branch\n');
+            Terminal.println('No commits yet, cannot create a new branch');
         }
     } else {
-        _listBranches(repo);
+        await _listBranches(repo, true);
     }
 }
 
-async function _listBranches(repo: TrakRepository) {
+async function _listBranches(repo: TrakRepository, verbose: boolean = false) {
     const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
     if (!headsDir) 
         return
 
-    const branches = await TrakFileSystem.listFiles(headsDir);
+    const branches = await FileSystem.listFiles(headsDir);
 
     // Get current branch
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
@@ -51,7 +52,17 @@ async function _listBranches(repo: TrakRepository) {
     // check for empty branches
     for (const branch of branches.sort()) {
         const currentMarker = branch == currentBranch ? "* " : "  ";
-        process.stdout.write(`${ currentMarker }${ branch }\n`);
+        let suffixInfo = '';
+        if (verbose) {
+            const commit = await TrakRefs.getBranchCommit(repo, branch);
+            if (commit) {
+                const commitObj = await TrakObjectsBase.readObject(repo, commit) as TrakCommit;
+                if (commitObj) {
+                    suffixInfo = `${ shortHash(commit) } ${ commitObj.message.split('\n')[0] }`
+                }
+            }
+        }
+        Terminal.println(`${ currentMarker }${ branch } ${suffixInfo}`);
     }
 }
 
@@ -63,13 +74,13 @@ async function _createBranch(repo: TrakRepository, branchName: string) {
         throw new Error(`A branch named ${ branchName } already exists`);
 
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    if (branchName) {
+    if (currentBranch) {
         const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
         if (currentCommit) {
             await TrakRefs.setBranchCommit(repo, branchName, currentCommit);
-            process.stdout.write(`Created branch ${ branchName }\n`);
+            Terminal.println(`Created branch ${ branchName }`);
         } else {
-            process.stdout.write('No commits yet, cannot create a new branch\n');
+            Terminal.println('No commits yet, cannot create a new branch');
         }
     }
 }
@@ -77,7 +88,7 @@ async function _createBranch(repo: TrakRepository, branchName: string) {
 async function _deleteBranch(repo: TrakRepository, branchName: string, force: boolean = false) {
     // Check if branch exists
     if (!(await TrakRefs.branchExists(repo, branchName)))
-        throw new Error(`Branch ${ branchName } was not found`);
+        throw new Error(`error: branch ${ branchName } was not found`);
 
     // Check if it's the current branch
     const currentBranch = await TrakRefs.getCurrentBranch(repo);
@@ -94,8 +105,9 @@ async function _deleteBranch(repo: TrakRepository, branchName: string, force: bo
     }
 
     // TODO: Delete branch file and remove empty directories
-
-    process.stdout.write(`Delete branch ${ branchName }\n`);
+    const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
+    await FileSystem.removeFile(branchFile!);
+    Terminal.println(`Delete branch ${ branchName }`);
 }
 
 async function _renameBranch(repo: TrakRepository, oldName: string, newName: string, force: boolean = false) {
@@ -132,7 +144,7 @@ async function _renameBranch(repo: TrakRepository, oldName: string, newName: str
         await TrakRefs.setCurrentBranch(repo, newName);
 
     // # 8. Delete old branch reference
-    process.stdout.write(`Renamed branch ${ oldName } to ${ newName }`);
+    Terminal.println(`Renamed branch ${ oldName } to ${ newName }`);
 }
 
 async function _isBranchMerged(repo: TrakRepository, branchCommit: string) {
@@ -143,7 +155,45 @@ async function _isBranchMerged(repo: TrakRepository, branchCommit: string) {
     if (!headCommit)
         return null;
 
-    return await isAncestor(repo, branchCommit, headCommit);
+    return await _isAncestor(repo, branchCommit, headCommit);
+}
+
+/**
+ * 
+ * @param repo 
+ * @param ancestorSha 
+ * @param descendantSha 
+ * @returns 
+ */
+async function _isAncestor(repo: TrakRepository, ancestorSha: string, descendantSha: string): Promise<boolean> {
+    const visited = new Set<string>();
+    const queue: string[] = [descendantSha];
+
+    while (queue.length > 0) {
+        const currentSha = queue.shift()!;
+
+        if (currentSha === ancestorSha) {
+            return true;
+        }
+
+        if (visited.has(currentSha)) {
+            continue;
+        }
+
+        visited.add(currentSha);
+
+        // Load the commit object
+        const commit = (await TrakObjectsBase.readObject(repo, currentSha)) as TrakCommit;
+
+        // commit._parentHashes is an array of parent SHAs
+        if (commit.parentHashes && commit.parentHashes.length > 0) {
+            for (const parent of commit.parentHashes) {
+                queue.push(parent);
+            }
+        }
+    }
+
+    return false;
 }
 
 function _isValidBranchName(name: string): boolean {

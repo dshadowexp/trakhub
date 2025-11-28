@@ -1,6 +1,6 @@
 //abstraction for config
 
-import { TrakFileSystem } from "../file-system";
+import { FileSystem } from "../standard-lib";
 
 type ConfigFileLevel = 'local' | 'global' | 'system';
 
@@ -20,13 +20,13 @@ export class TrakConfig {
 
     private static async _getConfig(level: ConfigFileLevel): Promise<Config> {
         const configFilePath = await this._getConfigFilePath(level);
-        const gitConfigText = (await TrakFileSystem.readFile(configFilePath)).toString();
+        const gitConfigText = (await FileSystem.readFile(configFilePath)).toString();
         return Config.parse(gitConfigText);
     }
 
     private static async _setConfig(level: ConfigFileLevel, content: string): Promise<void> {
         const configFilePath = await this._getConfigFilePath(level);
-        await TrakFileSystem.writeFile(configFilePath, content);
+        await FileSystem.writeFile(configFilePath, content);
     }
 
     static async set(level: ConfigFileLevel, name: string, key: string, value: string, subsection: string | null = null): Promise<void> {

@@ -1,6 +1,6 @@
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs"
-import { TrakFileSystem } from "../file-system";
+import { FileSystem } from "../standard-lib";
 import { TrakRepository } from "../repository";
 import type { TrakTreeEntry } from "../types";
 import { intersection, union } from "../util";
@@ -21,7 +21,7 @@ export async function merge(sourceBranch: string, noFF: boolean = false) {
 
     // Check if already in merge state (from previous conflict)
     const mergeHeadFile = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
-    if (mergeHeadFile && TrakFileSystem.exists(mergeHeadFile))
+    if (mergeHeadFile && FileSystem.exists(mergeHeadFile))
         throw new Error("fatal: You have not concluded your merge (MERGE_HEAD exists).\n" +
               "Please, commit your changes before you merge.");
 

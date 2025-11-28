@@ -50,3 +50,7 @@ export async function asyncFilter<T>(
 export function isValidSHA(sha: string) {
     return /^[a-fA_F0-9]{40}$/.test(sha);
 }
+
+export function shortHash(sha: string) {
+    return sha.slice(0, 7);
+}

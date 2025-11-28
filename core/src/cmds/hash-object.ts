@@ -1,11 +1,9 @@
 import type { TrakObjectTypeEnum } from "../types";
+import { FileSystem, Terminal } from "../standard-lib";
 import { TrakBlob, TrakCommit, TrakObject, TrakObjectsBase, TrakTree } from "../db/objects";
-import { TrakFileSystem } from "../file-system";
-import { TrakRepository } from "../repository";
 
 export async function hashObject(path: string, type: TrakObjectTypeEnum, write: boolean = false) {
-    const repo = write ? await TrakRepository.repoFind() : null;
-    const data = await TrakFileSystem.readFile(path);
+    const data = await FileSystem.readFile(path);
     const baseObject = new TrakObject(type, data);
     
     let object;
@@ -23,6 +21,6 @@ export async function hashObject(path: string, type: TrakObjectTypeEnum, write: 
             throw new Error(`Unknown type ${ type }`);
     }
 
-    const hash = await TrakObjectsBase.writeObject(object, repo);
-    process.stdout.write(`${hash}\n`);
+    const hash = await TrakObjectsBase.writeObject(object);
+    Terminal.println(hash);
 }

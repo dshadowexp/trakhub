@@ -1,6 +1,6 @@
 import { mkdir, realpath } from "fs/promises";
 import { join } from "path";
-import { TrakFileSystem } from "./file-system";
+import { FileSystem } from "./standard-lib";
 
 export class TrakRepository {
     private _trakDir: string;
@@ -8,7 +8,7 @@ export class TrakRepository {
     constructor(private _workTree: string, force: boolean = false) {
         this._trakDir = join(this._workTree, ".trak");
 
-        if (!(force || TrakFileSystem.exists(this._trakDir) && TrakFileSystem.isDirectory(this._trakDir))) {
+        if (!(force || FileSystem.exists(this._trakDir) && FileSystem.isDirectory(this._trakDir))) {
             throw new Error(`Not a Git repository ${this._workTree}`)
         }
     }
@@ -34,8 +34,8 @@ export class TrakRepository {
     static async repoDir(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
         const fullPath = this.repoPath(repo, ...path);
 
-        if (TrakFileSystem.exists(fullPath)) {
-            if (TrakFileSystem.isDirectory(fullPath)) {
+        if (FileSystem.exists(fullPath)) {
+            if (FileSystem.isDirectory(fullPath)) {
                 return fullPath;
             } else {
                 throw new Error(`Not a directory ${ fullPath }`);
@@ -53,7 +53,7 @@ export class TrakRepository {
     static async repoFind(path: string = '.', required: boolean = true): Promise<TrakRepository | null> {
         path = await realpath(path);
 
-        if (TrakFileSystem.isDirectory(join(path, '.trak'))) {
+        if (FileSystem.isDirectory(join(path, '.trak'))) {
             return new TrakRepository(path);
         }
 
@@ -71,10 +71,10 @@ export class TrakRepository {
 
     static async isRepoIgnore(repo: TrakRepository, filePath: string) {
         const ignoreFile = join(repo.workTree, ".gitignore");
-        if (TrakFileSystem.exists(ignoreFile))
+        if (FileSystem.exists(ignoreFile))
             return false
 
-        const ignorePatterns = (await TrakFileSystem.readFile(ignoreFile)).toString().split("\n");
+        const ignorePatterns = (await FileSystem.readFile(ignoreFile)).toString().split("\n");
         for (let pattern of ignorePatterns) {
             pattern = pattern.trim();
             if (pattern === "" || pattern.startsWith("#"))

@@ -1,5 +1,5 @@
 import { getBranchCommitFiles, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
-import { TrakFileSystem } from "../file-system";
+import { FileSystem, Terminal } from "../standard-lib";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 
@@ -19,28 +19,28 @@ export async function checkout(targetBranch: string, createBranch?: boolean) {
 
     if (!targetBranch || targetBranch === currentBranch) {
         for (const fileContent of currentTree) {
-            process.stdout.write(`M\t${ fileContent.name }\n`);
+            Terminal.println(`M\t${ fileContent.name }`);
         }
 
         if (targetBranch === currentBranch) {
-            process.stdout.write(`Already on '${targetBranch}'\n`);
+            Terminal.println(`Already on '${targetBranch}'`);
         } else {
-            process.stdout.write(`Your branch is up to date with '${ currentBranch }'\n`);
+            Terminal.println(`Your branch is up to date with '${ currentBranch }'`);
         }
     } else {
         const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", targetBranch);
 
-        if (!TrakFileSystem.exists(branchFile!)) {
+        if (!FileSystem.exists(branchFile!)) {
             if (createBranch) {
                 const currentCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
                 if (currentCommit) {
                     await TrakRefs.setBranchCommit(repo, targetBranch, currentCommit);
-                    process.stdout.write(`Created new branch ${ targetBranch }\n`);
+                    Terminal.println(`Created new branch ${ targetBranch }`);
                 } else {
-                    process.stdout.write('No commits yet, cannot create branch\n');
+                    Terminal.println('No commits yet, cannot create branch');
                 }
             } else {
-                process.stdout.write(`error: pathspec ${ targetBranch } did not match any file(s) known to git\n`);
+                Terminal.println(`error: pathspec ${ targetBranch } did not match any file(s) known to git`);
                 return;
             }
         }

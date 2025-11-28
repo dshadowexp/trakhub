@@ -2,10 +2,11 @@ import { join } from "path";
 import { TrakRepository } from "../repository";
 import type { TrakIndexRecord, TrakTreeEntry } from "../types";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
-import { TrakFileSystem } from "../file-system";
+import { Terminal, FileSystem } from "../standard-lib";
 import { TrakIndex } from "../db/t-index";
 import { TrakRefs } from "../db/refs";
 import { getBranchCommitFiles, getStatus } from "./-shared";
+import { shortHash } from "../util";
 
 const NULL_PATH = "/dev/null";
 type Target = TrakTreeEntry & { data: string };
@@ -74,11 +75,11 @@ async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecor
  */
 async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndexRecord) {
     // Scan working directory
-    const workingFiles = await TrakFileSystem.listFiles(repo.workTree);
+    const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
     const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
-        const fileData = await TrakFileSystem.readFile(path);
+        const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
     });
@@ -131,10 +132,10 @@ async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
  * @returns 
  */
 async function _fromFile(path: string): Promise<Target> {
-    const fileContent = await TrakFileSystem.readFile(path);
+    const fileContent = await FileSystem.readFile(path);
     const blob = new TrakBlob(fileContent);
     const oid = blob.hash();
-    const mode = TrakFileSystem.stats(path).mode.toString(8);
+    const mode = FileSystem.stats(path).mode.toString(8);
     return {
         name: path,
         oid,
@@ -182,11 +183,10 @@ async function _fromEntry(repo: TrakRepository, entry: TrakTreeEntry): Promise<T
  * @param b 
  */
 function _printDiff(a: Target, b: Target) {
-    console.log(a, b);
     const aPath = join("a", a.name);
     const bPath = join("b", b.name);
 
-    process.stdout.write(`diff --trak ${ aPath } ${ bPath }\n`);
+    Terminal.println(`diff --trak ${ aPath } ${ bPath }\n`);
     _printDiffMode(a, b);
     _printDiffContent(a, b);
 }
@@ -198,12 +198,12 @@ function _printDiff(a: Target, b: Target) {
  */
 function _printDiffMode(a: Target, b: Target) {
     if (!a.mode) {
-        process.stdout.write(`new file mode ${ b.mode }\n`);
+        Terminal.println(`new file mode ${ b.mode }`);
     } else if (!b.mode) {
-        process.stdout.write(`delete file mode ${ a.mode }\n`);
+        Terminal.println(`delete file mode ${ a.mode }`);
     } else if (a.mode !== b.mode) {
-        process.stdout.write(`old mode ${ a.mode }\n`);
-        process.stdout.write(`new mode ${ b.mode }\n`);
+        Terminal.println(`old mode ${ a.mode }`);
+        Terminal.println(`new mode ${ b.mode }`);
     }
 }
 
@@ -217,20 +217,22 @@ function _printDiffContent(a: Target, b: Target) {
     if (a.oid === b.oid)
         return;
 
-    const oidRange = [`index ${ a.oid.slice(0, 7) }..${ b.oid.slice(0, 7) }`];
+    const oidRange = [`index ${ shortHash(a.oid) }..${ b.oid.slice(0, 7) }`];
     if (a.mode === b.mode)
         oidRange.push(`${ a.mode }`);
 
-    process.stdout.write(`${ oidRange.join(' ') }\n`);
-    process.stdout.write(`--- ${ a.mode ? a.name : NULL_PATH }\n`);
-    process.stdout.write(`+++ ${ b.mode ? b.name : NULL_PATH }\n`);
+    Terminal.println(`${ oidRange.join(' ') }`);
+    Terminal.println(`--- ${ a.mode ? a.name : NULL_PATH }`);
+    Terminal.println(`+++ ${ b.mode ? b.name : NULL_PATH }`);
 
     // display the contents of the difference in the files 
-    // const edits = _myersDiff([], []);
-    // for (const op of edits) {
-    //     process.stdout.write(`${ diffSymbols[op.type] }${ op.line }\n`);
-    // }
+    const edits = _myersDiff([], []);
+    for (const op of edits) {
+        Terminal.println(`${ diffSymbols[op.type] }${ op.line }`);
+    }
 }
+
+// TODO: Implement hunks
 
 /**
  * 

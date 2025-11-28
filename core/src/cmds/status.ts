@@ -1,5 +1,5 @@
 import { getBranchCommitFiles, getStatus } from "./-shared";
-import { TrakFileSystem } from "../file-system";
+import { FileSystem, Terminal } from "../standard-lib";
 import { TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
@@ -23,14 +23,14 @@ export async function status(isPorcelain: boolean = false) {
     const indexEntries = await TrakIndex.loadIndex(repo);
 
     // Scan working directory
-    const workingFiles = await TrakFileSystem.listFiles(repo.workTree);
+    const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE HEAD vs INDEX (staged changes)
     const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
  
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
     const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
-        const fileData = await TrakFileSystem.readFile(path);
+        const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
     });
@@ -62,39 +62,39 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
 
     // Changes to be committed (staged)
     if (stagedNew.length > 0 || stagedModified.length > 0 || stagedDeleted.length > 0) {
-        process.stdout.write("Changes to be committed:\n");
-        process.stdout.write("  (use \"trak reset HEAD <file>...\" to unstage)\n");
+        Terminal.println("Changes to be committed:");
+        Terminal.println("  (use \"trak reset HEAD <file>...\" to unstage)");
         printFilesList(stagedNew, "\tnew file");
         printFilesList(stagedModified, "\tmodified");
         printFilesList(stagedDeleted, "\tdeleted");
-        process.stdout.write("\n");
+        Terminal.println("");
     }
 
     // Changes not staged for commit (modified/deleted in working dir)
     if (unstagedModified.length > 0 || unstagedDeleted.length > 0) {
-        process.stdout.write("Changes not staged for commit:\n");
-        process.stdout.write("  (use \"trak add/rm <file>...\" to update what will be committed)\n");
-        process.stdout.write("  (use \"trak checkout -- <file>...\" to discard changes in working directory)\n");
+        Terminal.println("Changes not staged for commit:");
+        Terminal.println("  (use \"trak add/rm <file>...\" to update what will be committed)");
+        Terminal.println("  (use \"trak checkout -- <file>...\" to discard changes in working directory)");
         printFilesList(unstagedModified, "\tmodified");
         printFilesList(unstagedDeleted, "\tdeleted");
-        process.stdout.write("\n");
+        Terminal.println("");
     }
 
     if (untracked.length > 0) {
-        process.stdout.write("Untracked files:\n");
-        process.stdout.write("  (use \"trak add <file>...\" to include in what will be committed\n");
+        Terminal.println("Untracked files:");
+        Terminal.println("  (use \"trak add <file>...\" to include in what will be committed");
         printFilesList(untracked, "\t");
-        process.stdout.write("\n");
+        Terminal.println("");
     }
     
     // Clean working tree message
     if (!(stagedNew || stagedModified || stagedDeleted || 
             unstagedModified || unstagedDeleted || untracked))
-        process.stdout.write("nothing to commit, working tree clean\n");
+        Terminal.println("nothing to commit, working tree clean");
 }
 
 function printFilesList(filesList: string[], prefix: string) {
     for (const filePath of filesList.sort()) {
-        process.stdout.write(`${ prefix }  ${ filePath }\n`);
+        Terminal.println(`${ prefix }  ${ filePath }`);
     }
 }

@@ -4,7 +4,7 @@ import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
 import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakTreeEntry } from "../types";
-import { TrakFileSystem } from "../file-system";
+import { FileSystem, Terminal } from "../standard-lib";
 
 export async function commit(message: string, author: TrakAuthor, committer: TrakAuthor) {
     const repo = await TrakRepository.repoFind();
@@ -14,7 +14,7 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
     // Read the index (staging area)
     const indexContent = await TrakIndex.loadIndex(repo);
     if (Object.keys(indexContent).length === 0) {
-        process.stdout.write('Nothing to commit, working tree clean - first\n');
+        Terminal.println('Nothing to commit, working tree clean - first');
         return null;
     }
 
@@ -30,7 +30,7 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
         const parentCommitObject = (await TrakObjectsBase.readObject(repo, parentCommit)) as TrakCommit;
 
         if (parentCommitObject.treeHash === treeHash) {
-            process.stdout.write('Nothing to commit, working tree clean - second\n');
+            Terminal.println('Nothing to commit, working tree clean - second');
             return null;
         }
     }
@@ -44,7 +44,7 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
     await TrakRefs.setBranchCommit(repo, currentBranchName, commitHash);
 
     const commitPointer = parentHashes.length > 0 ? currentBranchName : currentBranchName;
-    process.stdout.write(`[${ commitPointer } ${ commitHash }] ${ message }\n`);
+    Terminal.println(`[${ commitPointer } ${ commitHash }] ${ message }`);
     return commitHash;
 }
 
@@ -143,10 +143,10 @@ async function _buildTreeRecursive(repo: TrakRepository, dirTree: DirTree, prefi
 
         if (typeof content === 'string') {
             // It's a blob - Get stats of file
-            const stats = TrakFileSystem.stats(path);
+            const stats = FileSystem.stats(path);
             // Add directly to tree entry
             treeEntries.push({ 
-                mode: TrakFileSystem.mode(stats), 
+                mode: FileSystem.mode(stats), 
                 name, 
                 oid: content 
             });

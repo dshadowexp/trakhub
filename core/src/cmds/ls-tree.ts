@@ -1,5 +1,6 @@
 import { TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRepository } from "../repository";
+import { Terminal } from "../standard-lib";
 
 export async function lsTree(treeHash: string) {
     const repo = await TrakRepository.repoFind();
@@ -9,6 +10,6 @@ export async function lsTree(treeHash: string) {
     const tree = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
     for (const { mode, name, oid } of tree.entries) {
         const type = mode.startsWith("100") ? "blob" : "tree";
-        process.stdout.write(`${ mode } ${ type } ${ oid } ${ name }\n`);
+        Terminal.println(`${ mode } ${ type } ${ oid } ${ name }`);
     }
 }

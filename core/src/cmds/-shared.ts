@@ -1,12 +1,12 @@
 import { dirname, join } from "path";
+import { mkdir } from "fs/promises";
 import type { TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { asyncFilter, difference, intersection } from "../util";
-import { TrakFileSystem } from "../file-system";
+import { FileSystem, Terminal } from "../standard-lib";
 import { TrakIndex } from "../db/t-index";
-import { mkdir } from "fs/promises";
 
 // ************************************************************************************************/
 // Helper functions
@@ -35,21 +35,12 @@ export async function hasUncommittedChanges(repo: TrakRepository): Promise<boole
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
     const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
-        const fileData = await TrakFileSystem.readFile(path);
+        const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
     });
 
-    if (unstagedModified.length > 0)
-        return true;
-
-    if (stagedNew.length > 0)
-        return true;
-
-    if (stagedModified.length > 0)
-        return true;
-
-    return false;
+    return (unstagedModified.length > 0 || stagedNew.length > 0 || stagedModified.length > 0);
 }
 
 /**
@@ -105,10 +96,10 @@ export async function updateWorkingDirectory(repo: TrakRepository, currentTree: 
 
         try {
             // Skip if file does not exist
-            if (!TrakFileSystem.exists(fullPath))
+            if (!FileSystem.exists(fullPath))
                 continue;
             // Remove file and all empty parent directories
-            await TrakFileSystem.removeFile(fullPath, repo.workTree);
+            await FileSystem.removeFile(fullPath, repo.workTree);
         } catch (error) {}
     }
 
@@ -124,7 +115,7 @@ export async function updateWorkingDirectory(repo: TrakRepository, currentTree: 
         const blobObject = (await TrakObjectsBase.readObject(repo, oid)) as TrakBlob;
         const blob = TrakBlob.deserialize(blobObject.content);
         // Write blob content to file
-        await TrakFileSystem.writeFile(fullPath, blob.content);
+        await FileSystem.writeFile(fullPath, blob.content);
     }
 }
 
@@ -167,48 +158,8 @@ export async function extractFilesFromTree(repo: TrakRepository, treeHash: strin
             }
         }
     } catch (error) {
-        process.stdout.write(`Warning: Could not read tree ${treeHash}: ${error}`);
+        Terminal.println(`Warning: Could not read tree ${treeHash}: ${error}`);
     }
 
     return files;
 }
-
-/**
- * 
- * @param repo 
- * @param ancestorSha 
- * @param descendantSha 
- * @returns 
- */
-export async function isAncestor(repo: TrakRepository, ancestorSha: string, descendantSha: string): Promise<boolean> {
-    const visited = new Set<string>();
-    const queue: string[] = [descendantSha];
-
-    while (queue.length > 0) {
-        const currentSha = queue.shift()!;
-
-        if (currentSha === ancestorSha) {
-            return true;
-        }
-
-        if (visited.has(currentSha)) {
-            continue;
-        }
-
-        visited.add(currentSha);
-
-        // Load the commit object
-        const commit = (await TrakObjectsBase.readObject(repo, currentSha)) as TrakCommit;
-
-        // commit._parentHashes is an array of parent SHAs
-        if (commit.parentHashes && commit.parentHashes.length > 0) {
-            for (const parent of commit.parentHashes) {
-                queue.push(parent);
-            }
-        }
-    }
-
-    return false;
-}
-
-

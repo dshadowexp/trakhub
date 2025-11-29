@@ -1,37 +1,50 @@
 import { dirname, join } from "path";
-import { DiffAction, type DiffEntry } from "./tree-diff";
+import { DiffAction, treeDiff, type DiffEntry } from "./tree-diff";
 import { FileSystem } from "./standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import type { TrakRepository } from "../repository";
 import { UnixFileModeEnum } from "../types";
 import { mkdir } from "fs/promises";
 
-//handle migrations
-export async function migration(repo: TrakRepository, treeDiffChanges: DiffEntry[]) {
-    // Get working directory
-    const workingDirectory = repo.workTree;
+export async function migration(repo: TrakRepository, sourceTreeHash: string, targetTreeHash: string) {
+    // Get changes to be made for tree diff
+    const changes = await treeDiff(repo, sourceTreeHash, targetTreeHash);
 
+    // Step 1: Check for conflicts
+    const conflicts = await detectConflicts(changes, repo.workTree)
+    if (conflicts.length > 1)
+        throw new Error('Has conflicts');
+
+    // apply changes to directory
+    await applyChanges(repo, changes, repo.workTree);
+}
+
+/**
+ * 
+ * @param repo 
+ * @param tree 
+ */
+// export async function updateIndexFromTree(repo: TrakRepository, tree: TrakTreeEntry[]) {
+//     await TrakIndex.clearIndex(repo);
+//     await TrakIndex.saveIndex(repo, tree.reduce((current, record) => {
+//         return { ...current, [record.name]: record.oid };
+//     }, {}));
+// }
+
+/**
+ * 
+ * @param repo 
+ * @param treeDiffChanges 
+ * @param workingDirectory 
+ */
+async function applyChanges(repo: TrakRepository, treeDiffChanges: DiffEntry[], workingDirectory: string) {
     // Group changes by type for processing order
-    const deletions: DiffEntry[] = [];
-    const modifications: DiffEntry[] = [];
-    const additions: DiffEntry[] = [];
-
-    for (const diffEntry of treeDiffChanges) {
-        switch (diffEntry.action) {
-            case 'delete':
-                deletions.push(diffEntry);
-                break;
-            case 'modify':
-                modifications.push(diffEntry);
-                break;
-            case 'add':
-                additions.push(diffEntry);
-                break;
-        }
-    }
+    const deletions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.DELETE);
+    const modifications: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.MODIFY);
+    const additions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.ADD);
 
     // Process in order: delete, modify, add
-    // This prevents conflicts (e.g. can't add the same file if  file exists)
+    // This prevents conflicts (e.g. can't add the same file if file exists)
 
     // Step 1: Delete Files (in reverse depth order - files before dirs)
     const sortDeletions = sortByDepth(deletions, true);
@@ -51,38 +64,54 @@ export async function migration(repo: TrakRepository, treeDiffChanges: DiffEntry
     }
 }
 
-async function detectConflicts(repo: TrakRepository, changes: DiffEntry[], workingDirectory: string) {
+/**
+ * 
+ * @param changes 
+ * @param workingDirectory 
+ * @returns 
+ */
+async function detectConflicts(changes: DiffEntry[], workingDirectory: string) {
     const conflicts: string[] = [];
 
     for (const change of changes) {
         const fullPath = join(workingDirectory, change.path);
 
         switch(change.action) {
-            case DiffAction.ADD:
-                if (FileSystem.exists(fullPath)) {
-                    conflicts.push(fullPath);
-                }
-                break;
             case DiffAction.DELETE:
                 if (!FileSystem.exists(fullPath)) {
-                    conflicts.push(fullPath);
+                    conflicts.push(`Cannot delete non-existent: ${ fullPath }`);
+                } else if (await isModified(fullPath, change.oldOid!)) {
+                    conflicts.push(`File modified locally: ${fullPath}`);
                 }
                 break;
             case DiffAction.MODIFY:
-                if (FileSystem.exists(fullPath)) {
-                    const fileData = await FileSystem.readFile(fullPath);
-                    const blob = new TrakBlob(fileData);
-                    if (blob.hash() !== change.newOid) {
-                        conflicts.push(fullPath);
-                    }
-                } else {
-                    conflicts.push(fullPath);
+                if (!FileSystem.exists(fullPath)) {
+                    conflicts.push(`Cannot modify non-existent: ${ fullPath }`);
+                } else if (await isModified(fullPath, change.oldOid!)) {
+                    conflicts.push(`File modified locally: ${fullPath}`);
+                }
+                break;
+            case DiffAction.ADD:
+                if (!FileSystem.exists(fullPath)) {
+                    conflicts.push(`File already exists: ${ fullPath }`);
                 }
                 break;
         }
     }
 
     return conflicts;
+}
+
+/**
+ * 
+ * @param path 
+ * @param expectedOid 
+ * @returns 
+ */
+async function isModified(path: string, expectedOid: string) {
+    const fileData = await FileSystem.readFile(path);
+    const blob = new TrakBlob(fileData);
+    return blob.hash() != expectedOid;
 }
 
 /**

@@ -20,7 +20,7 @@ export async function createRepo(path: string) {
     }
 
     await TrakRepository.repoDir(repo, true, "objects");
-    await TrakRepository.repoDir(repo, true, "refs", "tags");
+    await TrakRepository.repoDir(repo, true, "refs", "remotes");
     await TrakRepository.repoDir(repo, true, "refs", "heads");
 
     const headFile = await TrakRepository.repoFile(repo, false, "HEAD");

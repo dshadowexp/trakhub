@@ -1,9 +1,8 @@
 import { dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { UnixFileModeEnum, type TrakTreeEntry } from "../types";
+import { type TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
 import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
-import { TrakRefs } from "../db/refs";
 import { asyncFilter, difference, intersection } from "../util";
 import { FileSystem, Terminal } from "../lib/standard";
 import { TrakIndex } from "../db/t-index";
@@ -26,13 +25,14 @@ export async function hasUncommittedChanges(repo: TrakRepository, currentTree: T
     }, {});
 
     // Load index (Staging area)
-    const indexEntries = await TrakIndex.loadIndex(repo);
+    await TrakIndex.load(repo);
+    const indexEntries = TrakIndex.entries;
 
     // COMPARE HEAD vs INDEX (staged changes)
-    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
@@ -104,10 +104,11 @@ export async function updateWorkingDirectory(repo: TrakRepository, currentTree: 
  * @param tree 
  */
 export async function updateIndexFromTree(repo: TrakRepository, tree: TrakTreeEntry[]) {
-    await TrakIndex.clearIndex(repo);
-    await TrakIndex.saveIndex(repo, tree.reduce((current, record) => {
-        return { ...current, [record.name]: record.oid };
-    }, {}));
+    await TrakIndex.clear(repo);
+    for (const entry of tree) {
+        TrakIndex.add(entry.name, entry.oid); // send mode
+    }
+    await TrakIndex.save(repo);
 }
 
 /**

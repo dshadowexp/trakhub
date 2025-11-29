@@ -2,7 +2,6 @@ import { getTreeFilesFromCommit, hasUncommittedChanges, updateIndexFromTree, upd
 import { Terminal } from "../lib/standard";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
-import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { resolveStartPoint } from "../lib/revision";
 
 type CheckoutArgs = {
@@ -15,7 +14,7 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
     if (!repo)
         return;
 
-    let commitHash;
+    let targetCommitHash;
     if (options.createBranch) {
         // Check if branch already exists
         if (await TrakRefs.branchExists(repo, targetRef))
@@ -26,22 +25,22 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
             options.startPoint = "HEAD";
 
         // Resolve the starting commit
-        commitHash = await resolveStartPoint(repo, options.startPoint);
-        if (!commitHash)
+        targetCommitHash = await resolveStartPoint(repo, options.startPoint);
+        if (!targetCommitHash)
             throw new Error(`Not a valid object name: ${options.startPoint}`);
 
         // Create the new branch pointing to the commit
-        await TrakRefs.setBranchCommit(repo, targetRef, commitHash);
+        await TrakRefs.setBranchCommit(repo, targetRef, targetCommitHash);
         Terminal.println(`Created new branch ${ targetRef }`);
     } else {
         // Verify the reference exists
-        commitHash = await resolveStartPoint(repo, targetRef);
-        if (!commitHash)
+        targetCommitHash = await resolveStartPoint(repo, targetRef);
+        if (!targetCommitHash)
             throw new Error(`error: pathspec ${ targetRef } did not match any file(s) known to git`);
     }
 
     // Extract files in target commit
-    const targetTree = await getTreeFilesFromCommit(repo, commitHash);
+    const targetTree = await getTreeFilesFromCommit(repo, targetCommitHash);
 
     // Resolve and extract files in current commit
     const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);

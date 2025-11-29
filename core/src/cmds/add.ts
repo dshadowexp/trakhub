@@ -1,19 +1,34 @@
-import { resolve, relative, join } from "path";
+import { resolve, relative, join, delimiter } from "path";
 import { FileSystem } from "../lib/standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
 
-export async function add(path: string) {
+export async function add(paths: string[]) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
+    
+    // Make paths absolute
+    const absolutePaths = new Set<string>();
+    for (const path of paths) {
+        // Resolve path argument
+        const absolutePath = resolve(path);
+        if (absolutePath.startsWith(repo.workTree)) {
+            absolutePaths.add(absolutePath);
+        } else {
+            throw new Error(`Cannot remove paths outside of worktree: ${ path }`);
+        }
+    }
 
     // Resolve path argument
-    const fullPath = resolve(path);
+    const fullPath = resolve(paths[0]);
     // Ensure path exists
     if (!FileSystem.exists(fullPath))
         throw new Error(`Path ${fullPath} not found`);
+
+    // Load index file
+    await TrakIndex.load(repo);
 
     if (FileSystem.isFile(fullPath)) {
         // Add file to object
@@ -24,6 +39,9 @@ export async function add(path: string) {
     } else {
         throw new Error(`${fullPath} is neither a file nor directory`);
     }
+
+    // Write all entries to index file
+    await TrakIndex.save(repo);
 }
 
 /**
@@ -36,12 +54,8 @@ async function _addFile(filePath: string, repo: TrakRepository) {
     const fileContent = await FileSystem.readFile(filePath);
     // Create and Store blob object in database
     const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
-    // Load index file json contents
-    const indexJSON = await TrakIndex.loadIndex(repo);
-    // Map blob hash to file path: [path] -> hash
-    indexJSON[relative(repo.workTree, filePath)] = blobHash;
-    // Save map to index file
-    await TrakIndex.saveIndex(repo, indexJSON);
+    // Add entry to Index entries
+    TrakIndex.add(relative(repo.workTree, filePath), blobHash);
 }
 
 /**
@@ -51,7 +65,7 @@ async function _addFile(filePath: string, repo: TrakRepository) {
  */
 async function _addDirectory(dirPath: string, repo: TrakRepository) {
     // Load index file json contents
-    const indexJSON = await TrakIndex.loadIndex(repo);
+    // const indexJSON = await TrakIndex.loadIndex(repo);
     const stack: string[] = [dirPath];
 
     while (stack.length > 0) {
@@ -73,12 +87,12 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
                 const fileContent = await FileSystem.readFile(fullPath);
                 // Create and store blob object from content
                 const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
-                // Update index map of blob hash to file path: [path] -> indexEntry
-                indexJSON[relative(repo.workTree, fullPath)] = blobHash;
+                // Add entry to Index entries
+                TrakIndex.add(relative(repo.workTree, fullPath), blobHash);
             }
         }
     }
 
-    // Save map of files to index file
-    await TrakIndex.saveIndex(repo, indexJSON);
+    // // Save map of files to index file
+    // await TrakIndex.saveIndex(repo, indexJSON);
 }

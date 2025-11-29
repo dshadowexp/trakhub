@@ -29,7 +29,7 @@ export async function treeDiff(repo: TrakRepository, treeHashA: string | null, t
     let changes: DiffEntry[] = [];
     const treeAEntries = !treeHashA ? [] : ((await TrakObjectsBase.readObject(repo, treeHashA)) as TrakTree).entries;
     const treeBEntries = !treeHashB ? [] : ((await TrakObjectsBase.readObject(repo, treeHashB)) as TrakTree).entries;
-    console.log(treeAEntries, treeBEntries)
+
     let indexA = 0, indexB = 0;
     let entryA: TrakTreeEntry, entryB: TrakTreeEntry;
 
@@ -47,25 +47,30 @@ export async function treeDiff(repo: TrakRepository, treeHashA: string | null, t
             entryB = treeBEntries[indexB];
 
             const comparison = comparePaths(entryA, entryB);
-
             if (comparison < 0) {
-                changes.push(...(await detectedDeletion(repo, entryA, prefix)))
+                changes.push(...(await detectedDeletion(repo, entryA, prefix)));
                 indexA++;
             } else if (comparison > 0) {
-                changes.push(...(await detectedAddition(repo, entryB, prefix)))
+                changes.push(...(await detectedAddition(repo, entryB, prefix)));
                 indexB++;
             } else {
-                changes.push(...(await detectedChange(repo, entryA, entryB, prefix)))
+                changes.push(...(await detectedChange(repo, entryA, entryB, prefix)));
                 indexA++;
                 indexB++;
             }
-
         }
     }
 
     return changes;
 }
 
+/**
+ * 
+ * @param repo 
+ * @param entry 
+ * @param prefix 
+ * @returns 
+ */
 async function detectedAddition(repo: TrakRepository, entry: TrakTreeEntry, prefix: string): Promise<DiffEntry[]> {
     const fullPath = join(prefix, entry.name);
 
@@ -78,6 +83,13 @@ async function detectedAddition(repo: TrakRepository, entry: TrakTreeEntry, pref
     }
 }
 
+/**
+ * 
+ * @param repo 
+ * @param entry 
+ * @param prefix 
+ * @returns 
+ */
 async function detectedDeletion(repo: TrakRepository, entry: TrakTreeEntry, prefix: string): Promise<DiffEntry[]> {
     const fullPath = join(prefix, entry.name);
 
@@ -90,6 +102,14 @@ async function detectedDeletion(repo: TrakRepository, entry: TrakTreeEntry, pref
     }
 }
 
+/**
+ * 
+ * @param repo 
+ * @param entryA 
+ * @param entryB 
+ * @param prefix 
+ * @returns 
+ */
 async function detectedChange(repo: TrakRepository, entryA: TrakTreeEntry, entryB: TrakTreeEntry, prefix: string): Promise<DiffEntry[]> {
     const fullPath = join(prefix, entryA.name);
     // Check if modes are different (type changed)
@@ -132,6 +152,12 @@ async function detectedChange(repo: TrakRepository, entryA: TrakTreeEntry, entry
     }
 }
 
+/**
+ * 
+ * @param entryA 
+ * @param entryB 
+ * @returns 
+ */
 function comparePaths(entryA: TrakTreeEntry, entryB: TrakTreeEntry): number {
     // Git sorts tree entries with special rules:
     // Directories are treated as having "/" appended for sorting

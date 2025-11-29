@@ -3,7 +3,7 @@ import { TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
-import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakTreeEntry } from "../types";
+import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakIndexRecord, type TrakTreeEntry } from "../types";
 import { FileSystem, Terminal } from "../lib/standard";
 
 export async function commit(message: string, author: TrakAuthor, committer: TrakAuthor) {
@@ -12,7 +12,8 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
         return;
 
     // Read the index (staging area)
-    const indexContent = await TrakIndex.loadIndex(repo);
+    await TrakIndex.load(repo);
+    const indexContent = TrakIndex.entries;
     if (Object.keys(indexContent).length === 0) {
         Terminal.println('Nothing to commit, working tree clean - first');
         return null;
@@ -61,7 +62,7 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
  * @param indexEntries  { Record<string, string> }
  * @returns 
  */
-async function _buildTreeFromIndex(repo: TrakRepository, indexEntries: Record<string, string>): Promise<string> {
+async function _buildTreeFromIndex(repo: TrakRepository, indexEntries: TrakIndexRecord): Promise<string> {
     // Organize files by directory
     const rootDirTree = _organizeIntoHierarchy(indexEntries);
     // Build trees recursively from bottom up
@@ -84,17 +85,17 @@ async function _buildTreeFromIndex(repo: TrakRepository, indexEntries: Record<st
  * @param indexEntries { Record<string, string> }
  * @returns { DirTree }
  */
-function _organizeIntoHierarchy(indexEntries: Record<string, string>): DirTree {
+function _organizeIntoHierarchy(indexEntries: TrakIndexRecord): DirTree {
     // Initialize files and directory maps
     const files: Record<string, string> = {};
     const dirs: Record<string, DirTree> = {};
 
-    for (const [filePath, blobHash] of Object.entries(indexEntries)) {
+    for (const { path, sha1 } of Object.values(indexEntries)) {
         // Split path into directories
-        const parts = filePath.split('/');
+        const parts = path.split('/');
         if (parts.length === 1) {
             // Assign blob hash if file
-            files[filePath] = blobHash;
+            files[path] = sha1.toString("ascii");
         } else {
             // Create trie like object if 
             const dirName = parts[0];
@@ -113,7 +114,7 @@ function _organizeIntoHierarchy(indexEntries: Record<string, string>): DirTree {
             }
 
             // Assign blob hash to last path(file) in tree
-            current[parts[parts.length - 1]] = blobHash
+            current[parts[parts.length - 1]] = sha1.toString("ascii")
         }
     }
 

@@ -26,7 +26,8 @@ export async function diff(options: DiffArgs = {}) {
         return;
 
     // Load index (Staging area)
-    const indexEntries = await TrakIndex.loadIndex(repo);
+    await TrakIndex.load(repo);
+    const indexEntries = TrakIndex.entries
 
     if (options.cached) {
         await _diffHeadIndex(repo, indexEntries);
@@ -49,7 +50,7 @@ async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecor
         return { ...current, [value.name]: value }
     }, {});
 
-    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
 
     if (stagedNew.length > 0) {
         for (const path of stagedNew) {
@@ -81,7 +82,7 @@ async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndex
     const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
@@ -121,12 +122,13 @@ async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
  * @returns 
  */
 async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
-    const indexEntries = await TrakIndex.loadIndex(repo);
+    await TrakIndex.load(repo)
+    const indexEntries = TrakIndex.entries;
     const entry = indexEntries[path];
     if (!entry)
         throw new Error(`Entry not found for path ${ path }`);
 
-    return await _fromEntry(repo, { name: path, oid: entry, mode: "" });
+    return await _fromEntry(repo, { name: path, oid: entry.sha1.toString("ascii"), mode: "" });
 }
 
 /**

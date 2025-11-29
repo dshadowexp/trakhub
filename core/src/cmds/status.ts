@@ -25,16 +25,17 @@ export async function status(isPorcelain: boolean = false) {
     }, {});
 
     // Load index (Staging area)
-    const indexEntries = await TrakIndex.loadIndex(repo);
+    await TrakIndex.load(repo);
+    const indexEntries = TrakIndex.entries;
 
     // Scan working directory
     const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE HEAD vs INDEX (staged changes)
-    const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path], async (path) => committedFiles[path].oid);
+    const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
  
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path], async (path) => {
+    const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
@@ -98,6 +99,11 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
         Terminal.println("nothing to commit, working tree clean");
 }
 
+/**
+ * 
+ * @param filesList 
+ * @param prefix 
+ */
 function printFilesList(filesList: string[], prefix: string) {
     for (const filePath of filesList.sort()) {
         Terminal.println(`${ prefix }  ${ filePath }`);

@@ -29,10 +29,10 @@ export async function hasUncommittedChanges(repo: TrakRepository, currentTree: T
     const indexEntries = TrakIndex.entries;
 
     // COMPARE HEAD vs INDEX (staged changes)
-    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => committedFiles[path].oid);
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();

@@ -12,13 +12,13 @@ export async function status(isPorcelain: boolean = false) {
         return;
 
     // Get current branch
-    const currentHeadCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const currentBranch = await TrakRefs.getCurrentBranch(repo);
+    const currentHeadCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
     if (!currentHeadCommit) {
         Terminal.println(`No commits yet`);
         return;
     }
    
-    
     // Get committed files
     const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentHeadCommit)).reduce((current, value) => {
         return { ...current, [value.name]: value }
@@ -32,10 +32,10 @@ export async function status(isPorcelain: boolean = false) {
     const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE HEAD vs INDEX (staged changes)
-    const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
+    const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => committedFiles[path].oid);
  
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
+    const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
@@ -45,11 +45,16 @@ export async function status(isPorcelain: boolean = false) {
     if (isPorcelain) {
         printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex);
     } else {
-        process.stdout.write(`On branch ${currentHeadCommit}\n`);
+        process.stdout.write(`On branch ${currentBranch}\n`);
         printLongFormat(indexAgainstHead, workingDirAgainstIndex);
     }
 }
 
+/**
+ * 
+ * @param indexAgainstHead 
+ * @param workingDirAgainstIndex 
+ */
 function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]]) {
     const [stagedNew, stagedModified, stagedDeleted] = indexAgainstHead;
     const [untracked, unstagedModified, unstagedDeleted] = workingDirAgainstIndex;
@@ -62,6 +67,11 @@ function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], 
     printFilesList(unstagedDeleted, " D");
 }
 
+/**
+ * 
+ * @param indexAgainstHead 
+ * @param workingDirAgainstIndex 
+ */
 function printLongFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]]) {
     const [stagedNew, stagedModified, stagedDeleted] = indexAgainstHead;
     const [untracked, unstagedModified, unstagedDeleted] = workingDirAgainstIndex;
@@ -94,9 +104,9 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
     }
     
     // Clean working tree message
-    if (!(stagedNew || stagedModified || stagedDeleted || 
-            unstagedModified || unstagedDeleted || untracked))
-        Terminal.println("nothing to commit, working tree clean");
+    if (stagedNew.length === 0 && stagedModified.length === 0 && stagedDeleted.length === 0 && 
+            unstagedModified.length === 0 && unstagedDeleted.length === 0 && untracked.length === 0)
+        Terminal.println("Nothing to commit, working tree clean");
 }
 
 /**

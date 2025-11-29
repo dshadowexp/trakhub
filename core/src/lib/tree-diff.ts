@@ -1,5 +1,5 @@
 import { join } from "path";
-import { TrakObjectsBase, TrakTree } from "../db/objects";
+import { TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRepository } from "../repository";
 import { UnixFileModeEnum, type TrakTreeEntry } from "../types";
 
@@ -20,12 +20,25 @@ export type DiffEntry = {
 
 /**
  * 
+ * @param repo 
+ * @param sourceCommit 
+ * @param targetCommit 
+ * @returns 
+ */
+export async function treeDiff(repo: TrakRepository, sourceCommit: string, targetCommit: string) {
+     const commitObjectA = (await TrakObjectsBase.readObject(repo, sourceCommit)) as TrakCommit;
+     const commitObjectB = (await TrakObjectsBase.readObject(repo, targetCommit)) as TrakCommit;
+     return await compareTrees(repo, commitObjectA.treeHash, commitObjectB.treeHash);
+}
+
+/**
+ * 
  * 
  * @param treeHashA - SHA1 hash of tree object a
  * @param treeHashB - SHA1 Hash of tree object b
  * @param prefix - current path prefix for nested trees
  */
-export async function treeDiff(repo: TrakRepository, treeHashA: string | null, treeHashB: string | null, prefix: string = ""): Promise<DiffEntry[]> {
+async function compareTrees(repo: TrakRepository, treeHashA: string | null, treeHashB: string | null, prefix: string = ""): Promise<DiffEntry[]> {
     let changes: DiffEntry[] = [];
     const treeAEntries = !treeHashA ? [] : ((await TrakObjectsBase.readObject(repo, treeHashA)) as TrakTree).entries;
     const treeBEntries = !treeHashB ? [] : ((await TrakObjectsBase.readObject(repo, treeHashB)) as TrakTree).entries;
@@ -76,7 +89,7 @@ async function detectedAddition(repo: TrakRepository, entry: TrakTreeEntry, pref
 
     if (entry.mode === UnixFileModeEnum.DIR) {
         // It's a tree (directory) - recurse to show all added files
-        return await treeDiff(repo, null, entry.oid, fullPath);
+        return await compareTrees(repo, null, entry.oid, fullPath);
     } else {
         // It's a blob (file)
         return [{ action: DiffAction.ADD, path: fullPath, newOid: entry.oid, newMode: entry.mode }];
@@ -95,7 +108,7 @@ async function detectedDeletion(repo: TrakRepository, entry: TrakTreeEntry, pref
 
     if (entry.mode === UnixFileModeEnum.DIR) {
         // It's a tree (directory) - recurse to show all deleted files
-        return await treeDiff(repo, entry.oid, null, fullPath);
+        return await compareTrees(repo, entry.oid, null, fullPath);
     } else {
         // It's a blob (file)
         return [{ action: DiffAction.DELETE, path: fullPath, oldOid: entry.oid, oldMode: entry.mode }];
@@ -145,7 +158,7 @@ async function detectedChange(repo: TrakRepository, entryA: TrakTreeEntry, entry
     // Different OIDs
     if ((entryA.mode === UnixFileModeEnum.DIR) && (entryB.mode === UnixFileModeEnum.DIR)) {
         // Both are trees - recurse into subdirectory
-        return await treeDiff(repo, entryA.oid, entryB.oid, fullPath);
+        return await compareTrees(repo, entryA.oid, entryB.oid, fullPath);
     } else {
         // Both are blobs - content changed
         return [{ action: DiffAction.MODIFY, path: fullPath, oldOid: entryA.oid, newOid: entryB.oid, oldMode: entryA.mode, newMode: entryB.mode }];

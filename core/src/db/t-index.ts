@@ -71,6 +71,14 @@ export class TrakIndex {
 
     /**
      * 
+     * @param path 
+     */
+    static async remove(path: string) {
+        delete this.entries[path];
+    }
+
+    /**
+     * 
      * @param repo 
      */
     static async clear(repo: TrakRepository) {
@@ -169,8 +177,8 @@ export class TrakIndex {
             throw new Error("Index entry count mismatch");
         }
 
-        this.entries = entries.reduce((result, current) => {
-            return { ...result, [current.path]: current};
+        this.entries = entries.reduce((result, entry) => {
+            return { ...result, [entry.path]: entry };
         }, {});
     }
 
@@ -241,49 +249,4 @@ export class TrakIndex {
         // --- Write final file ---
         await FileSystem.writeFile(indexPath, Buffer.concat([allData, digest]));
     }
-
-    // /**
-    //  * 
-    //  * @param repo 
-    //  * @returns 
-    //  */
-    // static async loadIndex(repo: TrakRepository): Promise<TrakIndexRecord> {
-    //     const indexFilePath = await TrakRepository.repoFile(repo, false, "index");
-    //     if (!indexFilePath || !FileSystem.exists(indexFilePath))
-    //         return {};
-
-    //     try {
-    //         const indexContent = (await FileSystem.readFile(indexFilePath)).toString();
-    //         if (!indexContent.trim())
-    //             return {};
-
-    //         const indexEntries: TrakIndexRecord = {};
-    //         for (const [key, value] of Object.entries(JSON.parse(indexContent))) {
-    //             const valuesSplit = (value as string).split(" ");
-    //             indexEntries[key] = valuesSplit[valuesSplit.length - 3] || valuesSplit[0]; // Remove || when writing the actual
-    //         }
-
-    //         return indexEntries;
-    //     } catch (error) {
-    //         throw new Error(`Error loading index: ${error}`);
-    //     }
-    // }
-
-    // static async saveIndex(repo: TrakRepository, indexEntries: TrakIndexRecord) {
-    //     const indexFilePath = await TrakRepository.repoFile(repo, true, "index");
-    //     if (!indexFilePath)
-    //         return;
-
-    //     //const header = Buffer.concat([Buffer.from(signature), Buffer.from(version.toString()), Buffer.from(index.length)]);
-    //     // const rawEntries = Object.entries(indexEntries).map(([path, oid]) => TrakIndex._createIndexEntry(path, oid));
-    //     // console.log(rawEntries);
-        
-    //     try {
-    //         await FileSystem.writeFile(indexFilePath, JSON.stringify(indexEntries, null, 2));
-    //     } catch (error) {
-    //         throw new Error(`Error saving index: ${error}`);
-    //     }
-    // }
-
-
 }

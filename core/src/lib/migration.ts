@@ -1,19 +1,19 @@
 import { dirname, join } from "path";
-import { DiffAction, treeDiff, type DiffEntry } from "./tree-diff";
-import { FileSystem } from "./standard";
+import { DiffAction, type DiffEntry } from "./tree-diff";
+import { FileSystem, Terminal } from "./standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import type { TrakRepository } from "../repository";
 import { UnixFileModeEnum } from "../types";
 import { mkdir } from "fs/promises";
+import { TrakIndex } from "../db/t-index";
 
-export async function migration(repo: TrakRepository, sourceTreeHash: string, targetTreeHash: string) {
-    // Get changes to be made for tree diff
-    const changes = await treeDiff(repo, sourceTreeHash, targetTreeHash);
-
+export async function migrate(repo: TrakRepository, changes: DiffEntry[]) {
     // Step 1: Check for conflicts
-    const conflicts = await detectConflicts(changes, repo.workTree)
-    if (conflicts.length > 1)
+    const conflicts = await detectConflicts(changes, repo.workTree);
+    if (conflicts.length > 0) {
+        conflicts.forEach((conflict) => Terminal.println(conflict));
         throw new Error('Has conflicts');
+    }
 
     // apply changes to directory
     await applyChanges(repo, changes, repo.workTree);
@@ -49,18 +49,24 @@ async function applyChanges(repo: TrakRepository, treeDiffChanges: DiffEntry[], 
     // Step 1: Delete Files (in reverse depth order - files before dirs)
     const sortDeletions = sortByDepth(deletions, true);
     for (const diffEntry of sortDeletions) {
-        await deleteFromWorkspace(join(workingDirectory, diffEntry.path), workingDirectory);
+        const path = join(workingDirectory, diffEntry.path);
+        await deleteFromWorkspace(path, workingDirectory);
+        TrakIndex.remove(path)
     }
 
     // Step 2: Modify Files 
     for (const diffEntry of modifications) {
-        await updateFile(repo, join(workingDirectory, diffEntry.path), diffEntry.newOid!, diffEntry.newMode!);
+        const path = join(workingDirectory, diffEntry.path);
+        await updateFile(repo, path, diffEntry.newOid!, diffEntry.newMode!);
+        TrakIndex.add(path, diffEntry.newOid!);
     }
 
     // Step 3: Add files (in depth order - dirs before files)
     const sortAdditions = sortByDepth(additions, false);
     for (const diffEntry of sortAdditions) {
-        await addToWorkingDirectory(repo, join(workingDirectory, diffEntry.path), diffEntry.newOid!, diffEntry.newMode!);
+        const path = join(workingDirectory, diffEntry.path);
+        await addToWorkingDirectory(repo, path, diffEntry.newOid!, diffEntry.newMode!);
+        TrakIndex.add(path, diffEntry.newOid!);
     }
 }
 
@@ -92,7 +98,7 @@ async function detectConflicts(changes: DiffEntry[], workingDirectory: string) {
                 }
                 break;
             case DiffAction.ADD:
-                if (!FileSystem.exists(fullPath)) {
+                if (FileSystem.exists(fullPath)) {
                     conflicts.push(`File already exists: ${ fullPath }`);
                 }
                 break;
@@ -127,9 +133,8 @@ async function deleteFromWorkspace(path: string, workingDirectory: string) {
         // Remove file and all empty parent directories
         await FileSystem.removeFile(path, workingDirectory);
     } catch (error) {
-        
+        throw new Error(`Error deleting from workspace: ${error}`);
     }
-    
 }
 
 /**
@@ -153,7 +158,7 @@ async function addToWorkingDirectory(repo: TrakRepository, path: string, oid: st
             await updateFile(repo, path, oid, mode);
         }
     } catch (error) {
-        
+        throw new Error(`Error Adding to Workspace: ${error}`);
     }
 }
 
@@ -170,7 +175,7 @@ async function updateFile(repo: TrakRepository, path: string, oid: string, mode:
         await FileSystem.writeFile(path, blob!.content);
         FileSystem.setPermssions(path, mode);
     } catch (error) {
-        
+        throw new Error(`Error updating file: ${error}`);
     }
 }
 
@@ -190,9 +195,9 @@ export function sortByDepth(actions: DiffEntry[], descendingOrder: boolean = fal
         const depthB = (b.path.match(/\//g) || []).length;
 
         if (descendingOrder) {
-            return depthB - depthA;
-        } else {
             return depthA - depthB;
+        } else {
+            return depthB - depthA;
         }
     })
 }

@@ -47,7 +47,7 @@ export async function parse(args: string[]) {
                 delete: false,
                 forceDelete: false, 
                 create: false,
-                startPoint: '@~1'
+                // startPoint: null
             })
         } else if (args[0] === 'checkout') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];

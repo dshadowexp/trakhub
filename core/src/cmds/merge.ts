@@ -1,6 +1,9 @@
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs"
+import { TrakIndex } from "../db/t-index";
+import { migrate } from "../lib/migration";
 import { FileSystem } from "../lib/standard";
+import { treeDiff } from "../lib/tree-diff";
 import { TrakRepository } from "../repository";
 import type { TrakTreeEntry } from "../types";
 import { intersection, union } from "../util";
@@ -122,10 +125,9 @@ async function _getAllAncestors(repo: TrakRepository, commit: string): Promise<s
 
         ancestors.add(current);
         const commitObject = (await TrakObjectsBase.readObject(repo, current)) as TrakCommit;
+
         // Add parent(s) to queue
-        for (const parent of commitObject.parentHashes) {
-            queue.push(parent);
-        }
+        queue.push(...commitObject.parentHashes);
     }
 
     return [...ancestors]
@@ -172,20 +174,25 @@ async function _fastForwardMerge(repo: TrakRepository, sourceCommit: string) {
     process.stdout.write(`Updating ${ currentBranch }..${sourceCommit.substring(0, 7)}`);
     process.stdout.write("Fast-forward");
     
-    // 1. Update working directory and index to match source commit
-    const sourceTree = await extractFilesFromTree(repo, ((await TrakObjectsBase.readObject(repo, sourceCommit)) as TrakCommit).treeHash);
-    
-    // # Get current tree
-    const currentTree = await getTreeFilesFromCommit(repo, currentBranch);
-    
-    // # Update working directory
-    await updateWorkingDirectory(repo, currentTree, sourceTree);
-    
-    // # Update index
-    await updateIndexFromTree(repo, sourceTree);
-    
-    // # 2. Update branch reference
-    await TrakRefs.setBranchCommit(repo, currentBranch, sourceCommit);
+    // Resolve and extract files in current commit
+    const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    if (!currentCommit)
+        throw new Error(`Current error at current commit at HEAD`);
+
+    // Load the index for updates
+    await TrakIndex.load(repo);
+
+    // Resolve tree diff
+    const changes = await treeDiff(repo, currentCommit, sourceCommit);
+
+    // Apply changes with migration
+    await migrate(repo, changes);
+
+    // Write all updates to index
+    await TrakIndex.save(repo);
+
+    // Set HEAD to point to the target branch
+    await TrakRefs.setCurrentBranch(repo, currentBranch);
     
     // # 3. Show stats
     // show_merge_stats(current_tree, source_tree)

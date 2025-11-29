@@ -3,6 +3,9 @@ import { Terminal } from "../lib/standard";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { resolveStartPoint } from "../lib/revision";
+import { treeDiff } from "../lib/tree-diff";
+import { migrate } from "../lib/migration";
+import { TrakIndex } from "../db/t-index";
 
 type CheckoutArgs = {
     createBranch?: boolean,
@@ -14,7 +17,7 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
     if (!repo)
         return;
 
-    let targetCommitHash;
+    let targetCommit;
     if (options.createBranch) {
         // Check if branch already exists
         if (await TrakRefs.branchExists(repo, targetRef))
@@ -25,39 +28,36 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
             options.startPoint = "HEAD";
 
         // Resolve the starting commit
-        targetCommitHash = await resolveStartPoint(repo, options.startPoint);
-        if (!targetCommitHash)
+        targetCommit = await resolveStartPoint(repo, options.startPoint);
+        if (!targetCommit)
             throw new Error(`Not a valid object name: ${options.startPoint}`);
 
         // Create the new branch pointing to the commit
-        await TrakRefs.setBranchCommit(repo, targetRef, targetCommitHash);
+        await TrakRefs.setBranchCommit(repo, targetRef, targetCommit);
         Terminal.println(`Created new branch ${ targetRef }`);
     } else {
         // Verify the reference exists
-        targetCommitHash = await resolveStartPoint(repo, targetRef);
-        if (!targetCommitHash)
+        targetCommit = await resolveStartPoint(repo, targetRef);
+        if (!targetCommit)
             throw new Error(`error: pathspec ${ targetRef } did not match any file(s) known to git`);
     }
-
-    // Extract files in target commit
-    const targetTree = await getTreeFilesFromCommit(repo, targetCommitHash);
 
     // Resolve and extract files in current commit
     const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);
     if (!currentCommit)
-        throw new Error(`Current head commit corrupted`);
-    const currentTree = await getTreeFilesFromCommit(repo, currentCommit);
+        throw new Error(`Current error at current commit at HEAD`);
 
-    // Check for uncommitted changes
-    if (await hasUncommittedChanges(repo, currentTree))
-        throw new Error("Your local changes to the following files would be overwritten by checkout");
-    
-    // Remove files that exist in current branch but not in target branch
-    // Add files from tree
-    await updateWorkingDirectory(repo, currentTree, targetTree);
+    // Load the index for updates
+    await TrakIndex.load(repo);
 
-    // Clear current index and rebuild from target branch files
-    await updateIndexFromTree(repo, targetTree);
+    // Resolve tree diff
+    const changes = await treeDiff(repo, currentCommit, targetCommit);
+
+    // Apply changes with migration
+    await migrate(repo, changes);
+
+    // Write all updates to index
+    await TrakIndex.save(repo);
 
     // Set HEAD to point to the target branch
     await TrakRefs.setCurrentBranch(repo, targetRef);

@@ -9,12 +9,23 @@ import { getTreeFilesFromCommit, getStatus } from "./-shared";
 import { shortHash } from "../util";
 
 const NULL_PATH = "/dev/null";
+
 type DiffOp =
     | { type: "add"; line: string; position: number }
     | { type: "delete"; line: string; position: number }
     | { type: "context"; line: string };
+
 const diffSymbols = { "add": "+", "delete": "-", "context": " "};
+
 type Target = TrakTreeEntry & { data: string };
+
+export interface Hunk {
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: string[];  // formatted diff lines
+}
 
 type DiffArgs = {
     cached?: boolean;
@@ -27,7 +38,7 @@ export async function diff(options: DiffArgs = {}) {
 
     // Load index (Staging area)
     await TrakIndex.load(repo);
-    const indexEntries = TrakIndex.entries
+    const indexEntries = TrakIndex.entries;
 
     if (options.cached) {
         await _diffHeadIndex(repo, indexEntries);
@@ -50,7 +61,7 @@ async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecor
         return { ...current, [value.name]: value }
     }, {});
 
-    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => committedFiles[path].oid);
+    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => committedFiles[path].oid);
 
     if (stagedNew.length > 0) {
         for (const path of stagedNew) {
@@ -82,7 +93,7 @@ async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndex
     const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("ascii"), async (path) => {
+    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => {
         const fileData = await FileSystem.readFile(path);
         const blob = new TrakBlob(fileData);
         return blob.hash();
@@ -128,7 +139,7 @@ async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
     if (!entry)
         throw new Error(`Entry not found for path ${ path }`);
 
-    return await _fromEntry(repo, { name: path, oid: entry.sha1.toString("ascii"), mode: "" });
+    return await _fromEntry(repo, { name: path, oid: entry.sha1.toString("hex"), mode: entry.mode.toString() });
 }
 
 /**
@@ -178,7 +189,7 @@ async function _fromEntry(repo: TrakRepository, entry: TrakTreeEntry): Promise<T
         name: entry.name,
         oid: entry.oid,
         mode: entry.mode,
-        data: blob?.content.toString() || "",
+        data: blob.content.toString(),
     }
 }
 
@@ -191,7 +202,7 @@ function _printDiff(a: Target, b: Target) {
     const aPath = join("a", a.name);
     const bPath = join("b", b.name);
 
-    Terminal.println(`diff --trak ${ aPath } ${ bPath }\n`);
+    Terminal.println(`diff --trak ${ aPath } ${ bPath }`);
     _printDiffMode(a, b);
     _printDiffContent(a, b);
 }
@@ -231,13 +242,109 @@ function _printDiffContent(a: Target, b: Target) {
     Terminal.println(`+++ ${ b.mode ? b.name : NULL_PATH }`);
 
     // display the contents of the difference in the files 
-    const edits = _myersDiff([], []);
-    for (const op of edits) {
-        Terminal.println(`${ diffSymbols[op.type] }${ op.line }`);
+    const edits = _myersDiff(a.data.split("\n"), b.data.split("\n"));
+    const hunks = buildHunks(edits);
+
+    for (const h of hunks) {
+        Terminal.println(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
+        Terminal.println(h.lines.join("\n"));
     }
 }
 
-// TODO: Implement hunks
+export interface Hunk {
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: string[];  // formatted diff lines
+}
+
+/**
+ * Convert a Myers diff sequence (DiffOp[]) into Git-style unified diff hunks.
+ */
+export function buildHunks(ops: DiffOp[]): Hunk[] {
+    const hunks: Hunk[] = [];
+
+    let oldPos = 1;
+    let newPos = 1;
+
+    let current: Hunk | null = null;
+
+    for (const op of ops) {
+        const startsNewHunk =
+            op.type !== "context" || // non-context line always starts/continues a hunk
+            (current && isCloseToHunkEnd(current, oldPos, newPos));
+
+        // Start a new hunk if necessary
+        if (!current) {
+            current = createNewHunk(oldPos, newPos);
+        }
+
+        // Add diff line to hunk
+        current.lines.push(formatOp(op));
+
+        // Update counters
+        if (op.type === "context") {
+            oldPos++;
+            newPos++;
+            incrementHunkCounters(current, "both");
+        } else if (op.type === "delete") {
+            oldPos++;
+            incrementHunkCounters(current, "old");
+        } else if (op.type === "add") {
+            newPos++;
+            incrementHunkCounters(current, "new");
+        }
+
+        // If next op is far away, finalize hunk
+        const nextOp = ops[ops.indexOf(op) + 1];
+        if (!nextOp || shouldCloseHunk(op, nextOp, oldPos, newPos)) {
+            hunks.push(current);
+            current = null;
+        }
+    }
+
+    return hunks;
+}
+
+/** Create a fresh hunk starting at positions */
+function createNewHunk(oldStart: number, newStart: number): Hunk {
+    return {
+        oldStart,
+        newStart,
+        oldLines: 0,
+        newLines: 0,
+        lines: [],
+    };
+}
+
+/** Format a DiffOp into a unified diff line */
+function formatOp(op: DiffOp): string {
+    const symbol = diffSymbols[op.type];
+    return symbol + op.line;
+}
+
+/** Update line counters inside a hunk */
+function incrementHunkCounters(hunk: Hunk, kind: "old" | "new" | "both") {
+    if (kind === "old" || kind === "both") hunk.oldLines++;
+    if (kind === "new" || kind === "both") hunk.newLines++;
+}
+
+/** Detect if we should close the current hunk */
+function shouldCloseHunk(prev: DiffOp, next: DiffOp, oldPos: number, newPos: number) {
+    // Start a new hunk whenever there is a large unrelated gap
+    if (next.type !== "context" && prev.type === "context") {
+        return false; // continue hunk
+    }
+
+    // If there is too much context separation, break the hunk
+    return false;
+}
+
+/** Decide if context is close enough to keep in same hunk (Git uses 3 lines) */
+function isCloseToHunkEnd(hunk: Hunk, oldPos: number, newPos: number) {
+    return true; // simplifying: keep all ops in same hunk unless separated by big gap
+}
 
 /**
  * 
@@ -368,8 +475,3 @@ function backtrackMyers(trace: number[][], original: string[], modified: string[
 
     return result;
 }
-
-// const original = ["a", "b", "c", "a", "b", "b", "a"];
-// const modified = ["c", "b", "a", "b", "a", "c"];
-
-// console.log(_myersDiff(original, modified));

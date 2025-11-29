@@ -3,7 +3,7 @@ import { TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
-import { UnixFileModeEnum, type DirTree, type TrakAuthor, type TrakIndexRecord, type TrakTreeEntry } from "../types";
+import { TrakAuthor, UnixFileModeEnum, type DirTree, type TrakIndexRecord, type TrakTreeEntry } from "../types";
 import { FileSystem, Terminal } from "../lib/standard";
 
 export async function commit(message: string, author: TrakAuthor, committer: TrakAuthor) {
@@ -11,24 +11,45 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
     if (!repo)
         return;
 
+    // Get current branch
+    const currentBranchName = await TrakRefs.getCurrentBranch(repo);
+    // Get parent commit
+    const parentCommit = await TrakRefs.getBranchCommit(repo, currentBranchName);
+
+    // Create commit object
+    const parentHashes = !parentCommit ? [] : [ parentCommit ];
+
+    // Write Commit to objects
+    const commit = await writeCommit(repo, parentHashes, message);
+    if (!commit)
+        return;
+
+    const commitPointer = parentHashes.length > 0 ? currentBranchName : currentBranchName;
+    Terminal.println(`[${ commitPointer } ${ commit?.hash() }] ${ message }`);
+}
+
+/**
+ * 
+ * @param repo 
+ * @param parents 
+ * @param message 
+ * @returns 
+ */
+export async function writeCommit(repo: TrakRepository, parents: string[], message: string): Promise<TrakCommit | null> {
     // Read the index (staging area)
     await TrakIndex.load(repo);
-    const indexContent = TrakIndex.entries;
-    if (Object.keys(indexContent).length === 0) {
+    const indexEntries = TrakIndex.entries;
+    if (Object.keys(indexEntries).length === 0) {
         Terminal.println('Nothing to commit, working tree clean - first');
         return null;
     }
 
     // Build tree objects from index
-    const treeHash = await _buildTreeFromIndex(repo, indexContent);
+    const treeHash = await _buildTreeFromIndex(repo, indexEntries);
 
-    // Get current branch
-    const currentBranchName = await TrakRefs.getCurrentBranch(repo);
-    // Get parent commit
-    const parentCommit = await TrakRefs.getBranchCommit(repo, currentBranchName);
     // Verify no changes from computed hashes
-    if (parentCommit) {
-        const parentCommitObject = (await TrakObjectsBase.readObject(repo, parentCommit)) as TrakCommit;
+    if (parents.length > 0) {
+        const parentCommitObject = (await TrakObjectsBase.readObject(repo, parents[0])) as TrakCommit;
 
         if (parentCommitObject.treeHash === treeHash) {
             Terminal.println('Nothing to commit, working tree clean - second');
@@ -36,17 +57,20 @@ export async function commit(message: string, author: TrakAuthor, committer: Tra
         }
     }
 
+    // Construct author
+    const name = "Random"; // load from config
+    const email = "random@gmail.com"; // load from config
+    const author = new TrakAuthor(name, email);
+    const committer = new TrakAuthor(name, email);
+
     // Create commit object
-    const parentHashes = !parentCommit ? [] : [ parentCommit ];
-    const commit = new TrakCommit(treeHash, parentHashes, author, committer, message);
+    const commit = new TrakCommit(treeHash, parents, author, committer, message);
     const commitHash = await TrakObjectsBase.writeObject(commit, repo);;
 
     // Update references - commit of current branch
-    await TrakRefs.setBranchCommit(repo, currentBranchName, commitHash);
+    await TrakRefs.setCurrentHeadCommit(repo, commitHash);
 
-    const commitPointer = parentHashes.length > 0 ? currentBranchName : currentBranchName;
-    Terminal.println(`[${ commitPointer } ${ commitHash }] ${ message }`);
-    return commitHash;
+    return commit;
 }
 
 /**
@@ -95,7 +119,7 @@ function _organizeIntoHierarchy(indexEntries: TrakIndexRecord): DirTree {
         const parts = path.split('/');
         if (parts.length === 1) {
             // Assign blob hash if file
-            files[path] = sha1.toString("ascii");
+            files[path] = sha1.toString("hex");
         } else {
             // Create trie like object if 
             const dirName = parts[0];
@@ -114,7 +138,7 @@ function _organizeIntoHierarchy(indexEntries: TrakIndexRecord): DirTree {
             }
 
             // Assign blob hash to last path(file) in tree
-            current[parts[parts.length - 1]] = sha1.toString("ascii")
+            current[parts[parts.length - 1]] = sha1.toString("hex");
         }
     }
 

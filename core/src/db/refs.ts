@@ -83,9 +83,13 @@ export class TrakRefs {
         await FileSystem.writeFile(branchFile, commitHash);
     }
 
+    static async setCurrentHeadCommit(repo: TrakRepository, commitHash: string) {
+        const currentBranch = await this.getCurrentBranch(repo);
+        await this.setBranchCommit(repo, currentBranch, commitHash);
+    }
+
     static async getCurrentHeadCommit(repo: TrakRepository,) {
         const headRef = await this._readReference(repo, "HEAD");
-    
         if (!headRef || headRef.trim() === "") {
             return null;
         }

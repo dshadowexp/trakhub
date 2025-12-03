@@ -1,5 +1,4 @@
 import { TrakRepository } from "../repository";
-import type { TrakIndexEntry, TrakIndexRecord } from "../types";
 import { FileSystem } from "../lib/standard";
 import { createHash } from "crypto";
 
@@ -7,9 +6,25 @@ const HEADER_SIZE = 12;
 const SIGNATURE = "DIRC";
 const MAX_PATH_SIZE = 0xfff;
 
+export type TrakIndexEntry = {
+    ctimeSec: number;
+    ctimeNano: number;
+    mtimeSec: number;
+    mtimeNano: number;
+    dev: number;
+    ino: number;
+    mode: number;
+    uid: number;
+    gid: number;
+    size: number;
+    sha1: Buffer;
+    flags: number;
+    path: string;
+}
+
 export class TrakIndex {
     static version = 2;
-    static entries: Record<string, TrakIndexEntry> = {};
+    private static _entries: TrakIndexEntry[] = [];
 
     /**
      * 
@@ -40,23 +55,77 @@ export class TrakIndex {
     private static _createIndexEntry(path: string, hash: string): TrakIndexEntry {
         // Get file stats
         const stats = FileSystem.stats(path);
+        const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
         
         // Return the values of the index entry
         return {
-            ctimeSec:  Math.floor(stats.ctime.getTime() / 1000),
+            ctimeSec: Math.floor(stats.ctime.getTime() / 1000),
             ctimeNano: stats.ctime.getMilliseconds(),
             mtimeSec: Math.floor(stats.mtime.getTime() / 1000),
             mtimeNano: stats.mtime.getMilliseconds(),
             dev: stats.dev,
             ino: stats.ino,
-            mode: parseInt(FileSystem.mode(stats)),
+            mode: parseInt(FileSystem.mode(path)),
             uid: stats.uid,
             gid: stats.gid,
             size: stats.size,
             sha1: Buffer.from(hash, "hex"),
-            flags: Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE),
+            flags: flags,
             path,
         };
+    }
+
+    private static _createIndexEntryFromDb(path: string, item: { mode: string, hash: string}, n: number) {
+        const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
+        return {
+            ctimeSec: 0,
+            ctimeNano: 0,
+            mtimeSec: 0,
+            mtimeNano: 0,
+            dev: 0,
+            ino: 0,
+            mode: parseInt(item.mode),
+            uid: 0,
+            gid: 0,
+            size: 0,
+            sha1: Buffer.from(item.hash, "hex"),
+            flags: ( n << 12) | flags,
+            path,
+        };
+    }
+
+    private static _stage(flags: number): number {
+        return (flags >> 12) & 0x3;
+    }
+
+    private static _removeWithStage(path: string, stage: number) {
+        this._entries = this._entries.filter(value => value.path === path && this._stage(value.flags) === stage);
+    }
+
+    /**
+     * 
+     */
+    static get entries(): TrakIndexEntry[] {
+        return this._entries;
+    }
+
+    /**
+     * 
+     * @param path 
+     * @returns 
+     */
+    static isTracked(path: string): boolean {
+        return [1, 2, 3].some((value) => this.getEntry(path, value) !== undefined);
+    }
+
+    /**
+     * 
+     * @param path 
+     * @param stage 
+     * @returns 
+     */
+    static getEntry(path: string, stage: number = 0): TrakIndexEntry | undefined {
+        return this._entries.find(value => value.path === path && this._stage(value.flags) === stage);
     }
 
     /**
@@ -64,26 +133,51 @@ export class TrakIndex {
      * @param path 
      * @param hash 
      */
-    static async add(path: string, hash: string) {
+    static add(path: string, hash: string) {
+        console.log(`+>>>>Index adding - ${ path }`);
         const entry = this._createIndexEntry(path, hash);
-        this.entries[path] = entry;
+        this._entries.push(entry);
+    }
+
+    /**
+     * 
+     * @param path 
+     * @param items 
+     */
+    static addConflictSet(path: string, items: { mode: string, hash: string}[]) {
+        this._removeWithStage(path, 0);
+        items.forEach((value, i) => {
+            const entry = this._createIndexEntryFromDb(path, value, i + 1);
+            this._entries.push(entry);
+        })
+    }
+
+    /**
+     * 
+     * @returns 
+     */
+    static hasConflict() {
+        return this._entries.some(value => this._stage(value.flags) > 0);
     }
 
     /**
      * 
      * @param path 
      */
-    static async remove(path: string) {
-        delete this.entries[path];
+    static remove(path: string) {
+        console.log(`-<<<<<Index removing - ${ path }`);
+        [1, 2, 3].forEach((value) => {
+            this._removeWithStage(path, value);
+        });
+        console.log(this.getFilePaths());
     }
 
-    /**
-     * 
-     * @param repo 
-     */
-    static async clear(repo: TrakRepository) {
-        this.entries = {}
-        await TrakIndex.save(repo);
+    static getFilePaths(): string[] {
+        return this._entries.map(value => value.path);
+    }
+
+    static hasConflicts(): boolean {
+        return this.entries.some(value => this._stage(value.flags) > 0);
     }
 
     /**
@@ -177,9 +271,7 @@ export class TrakIndex {
             throw new Error("Index entry count mismatch");
         }
 
-        this.entries = entries.reduce((result, entry) => {
-            return { ...result, [entry.path]: entry };
-        }, {});
+        this._entries = entries;
     }
 
     /**
@@ -194,7 +286,7 @@ export class TrakIndex {
 
         const packedEntries: Buffer[] = [];
 
-        for (const entry of Object.values(this.entries)) {
+        for (const entry of Object.values(this._entries)) {
             // --- Build the 62-byte header ---
             const head = Buffer.alloc(62);
 
@@ -239,7 +331,7 @@ export class TrakIndex {
         const header = Buffer.alloc(HEADER_SIZE);
         header.write(SIGNATURE, 0, "ascii");
         header.writeUInt32BE(this.version, 4);           // version 2
-        header.writeUInt32BE(Object.keys(this.entries).length, 8);
+        header.writeUInt32BE(Object.keys(this._entries).length, 8);
 
         const allData = Buffer.concat([header, ...packedEntries]);
 
@@ -248,5 +340,13 @@ export class TrakIndex {
 
         // --- Write final file ---
         await FileSystem.writeFile(indexPath, Buffer.concat([allData, digest]));
+    }
+
+    /**
+     * 
+     * @param repo 
+     */
+    static async clear() {
+        this._entries = []
     }
 }

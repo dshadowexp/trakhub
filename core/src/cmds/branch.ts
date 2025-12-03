@@ -5,7 +5,6 @@ import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { shortHash } from "../util";
 import { resolveStartPoint } from "../lib/revision";
 
-
 type BranchArgs = { 
     list?: boolean,
     verbose?: boolean, 
@@ -25,7 +24,12 @@ export async function branch(branchName: string, options: BranchArgs = {}) {
     } else if (options.delete) {
         await _deleteBranch(repo, branchName, options.forceDelete);
     } else if (options.create) {
-        await _createBranch(repo, branchName, options.startPoint);
+        const newBranchCommitHash = await createBranch(repo, branchName, options.startPoint);
+        if (!newBranchCommitHash) {
+            Terminal.println('No commits yet, cannot create a new branch');
+        } else {
+            Terminal.println(`Created branch ${ branchName }`);
+        }
     } else {
         await _listBranches(repo, options.verbose);
     }
@@ -58,14 +62,20 @@ async function _listBranches(repo: TrakRepository, verbose: boolean = false) {
     }
 }
 
-async function _createBranch(repo: TrakRepository, branchName: string, startPoint?: string) {
+export async function createBranch(repo: TrakRepository, branchName: string, startPoint?: string): Promise<string | null> {
+    // Validate branch name
     if (!_isValidBranchName(branchName))
         throw new Error(`${ branchName } is not a valid branch name`);
 
+    // Check if branch already exists
     if (await TrakRefs.branchExists(repo, branchName))
         throw new Error(`A branch named ${ branchName } already exists`);
 
-    let commitHash;
+    // Determine starting point for new branch
+    if (!startPoint)
+        startPoint = "HEAD";
+
+    let commitHash: string | null;
     if (startPoint) {
         commitHash = await resolveStartPoint(repo, startPoint);
     } else {
@@ -74,10 +84,9 @@ async function _createBranch(repo: TrakRepository, branchName: string, startPoin
         
     if (commitHash) {
         await TrakRefs.setBranchCommit(repo, branchName, commitHash);
-        Terminal.println(`Created branch ${ branchName }`);
-    } else {
-        Terminal.println('No commits yet, cannot create a new branch');
     }
+
+    return commitHash;
 }
 
 async function _deleteBranch(repo: TrakRepository, branchName: string, force: boolean = false) {

@@ -18,15 +18,20 @@ export async function log(maxCount: number = 10) {
     }
 
     let count = 0;
+    const logs: string[] = [];
     while (commitHash && count < maxCount) {
         const commit = (await TrakObjectsBase.readObject(repo, commitHash)) as TrakCommit;
 
-        Terminal.println(`commit ${ commitHash }`);
-        Terminal.println(`Author: ${ commit.author.serialize() }`);
-        Terminal.println(`Date:   ${ formatGitDate(commit.author.timestamp) }`);
-        Terminal.println(`\n\t${ commit.message }\n`);
+        logs.push([
+            `commit ${ commitHash }\n`,
+            `Author: ${ commit.author.serialize() }\n`,
+            `Date:   ${ formatGitDate(commit.author.timestamp) }\n`,
+            `\n\t${ commit.message }`
+        ].join(''));
 
         commitHash = commit.parentHashes.length > 0 ? commit.parentHashes[0] : null;
         count += 1
     }
+
+    Terminal.println(logs.join('\n'));
 }

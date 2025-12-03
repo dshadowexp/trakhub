@@ -16,58 +16,7 @@ export async function migrate(repo: TrakRepository, changes: DiffEntry[]) {
     }
 
     // apply changes to directory
-    await applyChanges(repo, changes, repo.workTree);
-}
-
-/**
- * 
- * @param repo 
- * @param tree 
- */
-// export async function updateIndexFromTree(repo: TrakRepository, tree: TrakTreeEntry[]) {
-//     await TrakIndex.clearIndex(repo);
-//     await TrakIndex.saveIndex(repo, tree.reduce((current, record) => {
-//         return { ...current, [record.name]: record.oid };
-//     }, {}));
-// }
-
-/**
- * 
- * @param repo 
- * @param treeDiffChanges 
- * @param workingDirectory 
- */
-async function applyChanges(repo: TrakRepository, treeDiffChanges: DiffEntry[], workingDirectory: string) {
-    // Group changes by type for processing order
-    const deletions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.DELETE);
-    const modifications: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.MODIFY);
-    const additions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.ADD);
-
-    // Process in order: delete, modify, add
-    // This prevents conflicts (e.g. can't add the same file if file exists)
-
-    // Step 1: Delete Files (in reverse depth order - files before dirs)
-    const sortDeletions = sortByDepth(deletions, true);
-    for (const diffEntry of sortDeletions) {
-        const path = join(workingDirectory, diffEntry.path);
-        await deleteFromWorkspace(path, workingDirectory);
-        TrakIndex.remove(path)
-    }
-
-    // Step 2: Modify Files 
-    for (const diffEntry of modifications) {
-        const path = join(workingDirectory, diffEntry.path);
-        await updateFile(repo, path, diffEntry.newOid!, diffEntry.newMode!);
-        TrakIndex.add(path, diffEntry.newOid!);
-    }
-
-    // Step 3: Add files (in depth order - dirs before files)
-    const sortAdditions = sortByDepth(additions, false);
-    for (const diffEntry of sortAdditions) {
-        const path = join(workingDirectory, diffEntry.path);
-        await addToWorkingDirectory(repo, path, diffEntry.newOid!, diffEntry.newMode!);
-        TrakIndex.add(path, diffEntry.newOid!);
-    }
+    await applyChanges(repo, changes);
 }
 
 /**
@@ -117,7 +66,40 @@ async function detectConflicts(changes: DiffEntry[], workingDirectory: string) {
 async function isModified(path: string, expectedOid: string) {
     const fileData = await FileSystem.readFile(path);
     const blob = new TrakBlob(fileData);
-    return blob.hash() != expectedOid;
+    return blob.hash() !== expectedOid;
+}
+
+/**
+ * 
+ * @param repo 
+ * @param treeDiffChanges 
+ * @param workingDirectory 
+ */
+async function applyChanges(repo: TrakRepository, treeDiffChanges: DiffEntry[]) {
+    // Group changes by type for processing order
+    const deletions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.DELETE);
+    const modifications: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.MODIFY);
+    const additions: DiffEntry[] = treeDiffChanges.filter((change) => change.action === DiffAction.ADD);
+
+    // Process in order: delete, modify, add
+    // This prevents conflicts (e.g. can't add the same file if file exists)
+
+    // Step 1: Delete Files (in reverse depth order - files before dirs)
+    const sortDeletions = sortByDepth(deletions, true);
+    for (const diffEntry of sortDeletions) {
+        await deleteFromWorkspace(repo, diffEntry.path);
+    }
+
+    // Step 2: Modify Files 
+    for (const diffEntry of modifications) {
+        await updateFile(repo, diffEntry.path, diffEntry.newOid!, diffEntry.newMode!);
+    }
+
+    // Step 3: Add files (in depth order - dirs before files)
+    const sortAdditions = sortByDepth(additions, false);
+    for (const diffEntry of sortAdditions) {
+        await addToWorkingDirectory(repo, diffEntry.path, diffEntry.newOid!, diffEntry.newMode!);
+    }
 }
 
 /**
@@ -125,13 +107,17 @@ async function isModified(path: string, expectedOid: string) {
  * @param path 
  * @param workingDirectory 
  */
-async function deleteFromWorkspace(path: string, workingDirectory: string) {
+async function deleteFromWorkspace(repo: TrakRepository, path: string) {
     try {
+        // Construct working path
+        const workingPath = join(repo.workTree, path);
         // Skip if file does not exist
-        if (!FileSystem.exists(path))
+        if (!FileSystem.exists(workingPath))
             throw new Error('File does not exist');
         // Remove file and all empty parent directories
-        await FileSystem.removeFile(path, workingDirectory);
+        await FileSystem.removeFile(workingPath, repo.workTree);
+        // Update Index
+        TrakIndex.remove(path);
     } catch (error) {
         throw new Error(`Error deleting from workspace: ${error}`);
     }
@@ -146,9 +132,8 @@ async function deleteFromWorkspace(path: string, workingDirectory: string) {
  */
 async function addToWorkingDirectory(repo: TrakRepository, path: string, oid: string, mode: string) {
     try {
-        const parentDir = dirname(path);
-        const dirPath = join(repo.workTree, parentDir);
-        if (FileSystem.exists(path)) {
+        const dirPath = join(repo.workTree, dirname(path));
+        if (!FileSystem.exists(dirPath)) {
             await mkdir(dirPath, { recursive: true });
         }
 
@@ -171,9 +156,12 @@ async function addToWorkingDirectory(repo: TrakRepository, path: string, oid: st
  */
 async function updateFile(repo: TrakRepository, path: string, oid: string, mode: string) {
     try {
+        console.log(`+>>>>>Updating file: ${ path }`);
         const blob = await TrakObjectsBase.readObject(repo, oid);
-        await FileSystem.writeFile(path, blob!.content);
-        FileSystem.setPermssions(path, mode);
+        await FileSystem.writeFile(join(repo.workTree, path), blob!.content);
+        //FileSystem.setMode(path, mode);
+        // Update index
+        TrakIndex.add(path, oid);
     } catch (error) {
         throw new Error(`Error updating file: ${error}`);
     }

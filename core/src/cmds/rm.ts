@@ -1,8 +1,7 @@
-import { resolve, relative, join, delimiter } from "path";
+import { resolve, join } from "path";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
 import { FileSystem } from "../lib/standard";
-import type { TrakIndexEntry } from "../types";
 
 type RmArgs = {
     delete?: boolean
@@ -29,15 +28,14 @@ export async function rm(paths: string[], options: RmArgs = {}) {
     // Find and read the index
     await TrakIndex.load(repo);
     // The list of entries to *keep*, which we will write back to the
-    const keptEntries: TrakIndexEntry[] = [], remove: string[] = [];
+    const remove: string[] = [];
 
-    for (const entry of Object.values(TrakIndex.entries)) {
-        const fullPath = join(repo.workTree, entry.path);
+    for (const entryPath of TrakIndex.getFilePaths()) {
+        const fullPath = join(repo.workTree, entryPath);
         if (absolutePaths.has(fullPath)) {
             remove.push(fullPath);
             absolutePaths.delete(fullPath);
-        } else {
-            keptEntries.push(entry);
+            TrakIndex.remove(entryPath);
         }
     }
 
@@ -53,10 +51,6 @@ export async function rm(paths: string[], options: RmArgs = {}) {
         }
     }
 
-    // Update the list of entries in the index, and write it back
-    await TrakIndex.clear(repo);
-    TrakIndex.entries = keptEntries.reduce((result, current) => {
-        return { ...result, [current.path]: current }
-    }, {});
+    // Write it back
     await TrakIndex.save(repo);
 }

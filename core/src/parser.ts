@@ -3,15 +3,18 @@ import { branch } from "./cmds/branch";
 import { catFile } from "./cmds/cat-file";
 import { checkout } from "./cmds/checkout";
 import { commit } from "./cmds/commit";
+import { commitTree } from "./cmds/commit-tree";
 import { diff } from "./cmds/diff";
 import { hashObject } from "./cmds/hash-object";
 import { createRepo } from "./cmds/init";
 import { log } from "./cmds/log";
 import { lsFiles } from "./cmds/ls-files";
 import { lsTree } from "./cmds/ls-tree";
+import { merge } from "./cmds/merge";
 import { rm } from "./cmds/rm";
 import { status } from "./cmds/status";
-import { TrakAuthor, TrakObjectTypeEnum } from "./types";
+import { writeTree } from "./cmds/write-tree";
+import { TrakObjectTypeEnum } from "./types";
 
 export async function parse(args: string[]) {
     try {
@@ -29,15 +32,16 @@ export async function parse(args: string[]) {
             await add([args[1]]);
         } else if (args[0] === 'rm') {
             await rm([args[1]]);
+        } else if (args[0] === 'write-tree') {
+            await writeTree();
+        } else if (args[0] === 'commit-tree') {
+            await commitTree({ treeHash: args[1], parents: [], message: args[2] })
         } else if (args[0] === 'commit') {
-            const author = new TrakAuthor('Trak User', 'user@trak.com');
-            await commit(args[1], author, author);
+            await commit(args[1]);
         } else if (args[0] === 'log') {
             await log();
         } else if (args[0] === 'status') {
             await status();
-        } else if (args[0] === 'diff') {
-            await diff();
         }  else if (args[0] === 'branch') {
             const name = args[1];
   
@@ -49,6 +53,8 @@ export async function parse(args: string[]) {
                 create: false,
                 // startPoint: null
             })
+        } else if (args[0] === 'diff') {
+            await diff();
         } else if (args[0] === 'checkout') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             const option = args.slice(1).length > 1;
@@ -57,7 +63,8 @@ export async function parse(args: string[]) {
                 // startPoint: ''
             });
         } else if (args[0] === 'merge') {
-
+            const name = args.slice(1).length > 1 ? args[2] : args[1];
+            await merge(name);
         } else if (args[0] === 'pull') {
 
         } else if (args[0] === 'push') {

@@ -1,14 +1,16 @@
 import { join } from "path";
 import { TrakRepository } from "../repository";
-import type { TrakIndexRecord, TrakTreeEntry } from "../types";
+import type { TrakTreeEntry } from "../types";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { Terminal, FileSystem } from "../lib/standard";
 import { TrakIndex } from "../db/t-index";
 import { TrakRefs } from "../db/refs";
-import { getTreeFilesFromCommit, getStatus } from "./-shared";
+import { getTreeFilesFromCommit } from "./-shared";
 import { shortHash } from "../util";
+import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
 
 const NULL_PATH = "/dev/null";
+const NULL_OID = "0".repeat(40);
 
 type DiffOp =
     | { type: "add"; line: string; position: number }
@@ -38,12 +40,11 @@ export async function diff(options: DiffArgs = {}) {
 
     // Load index (Staging area)
     await TrakIndex.load(repo);
-    const indexEntries = TrakIndex.entries;
 
     if (options.cached) {
-        await _diffHeadIndex(repo, indexEntries);
+        await _diffHeadIndex(repo);
     } else {
-        await _diffIndexWorkspace(repo, indexEntries);
+        await _diffIndexWorkspace(repo);
     }
 }
 
@@ -52,16 +53,9 @@ export async function diff(options: DiffArgs = {}) {
  * @param repo 
  * @param indexEntries 
  */
-async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecord) {
-    // Get current branch
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-
-    // Get committed files
-    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
-        return { ...current, [value.name]: value }
-    }, {});
-
-    const [stagedNew, stagedModified, stagedDeleted] = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => committedFiles[path].oid);
+async function _diffHeadIndex(repo: TrakRepository) {
+    // COMPARE HEAD vs INDEX (staged changes)
+    const [stagedNew, stagedModified, stagedDeleted] = await compareHeadAgainstIndex(repo);
 
     if (stagedNew.length > 0) {
         for (const path of stagedNew) {
@@ -88,16 +82,9 @@ async function _diffHeadIndex(repo: TrakRepository, indexEntries: TrakIndexRecor
  * @param workingFiles 
  * @param indexEntries 
  */
-async function _diffIndexWorkspace(repo: TrakRepository, indexEntries: TrakIndexRecord) {
-    // Scan working directory
-    const workingFiles = await FileSystem.listFiles(repo.workTree);
-
+async function _diffIndexWorkspace(repo: TrakRepository) {
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => {
-        const fileData = await FileSystem.readFile(path);
-        const blob = new TrakBlob(fileData);
-        return blob.hash();
-    });
+    const [untracked, unstagedModified, unstagedDeleted] = await compareWorkingDirectoryAgainstIndex(repo);
 
     if (unstagedModified.length > 0) {
         for (const path of unstagedModified) {
@@ -123,7 +110,7 @@ async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
     const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
-    return await _fromEntry(repo, { name: path, oid: committedFiles[path].oid, mode: "" });
+    return await _fromEntry(repo, { name: path, oid: committedFiles[path].oid, mode: committedFiles[path].mode });
 }
 
 /**
@@ -134,8 +121,7 @@ async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
  */
 async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
     await TrakIndex.load(repo)
-    const indexEntries = TrakIndex.entries;
-    const entry = indexEntries[path];
+    const entry = TrakIndex.getEntry(path);
     if (!entry)
         throw new Error(`Entry not found for path ${ path }`);
 
@@ -151,7 +137,7 @@ async function _fromFile(path: string): Promise<Target> {
     const fileContent = await FileSystem.readFile(path);
     const blob = new TrakBlob(fileContent);
     const oid = blob.hash();
-    const mode = FileSystem.stats(path).mode.toString(8);
+    const mode = FileSystem.mode(path);
     return {
         name: path,
         oid,
@@ -168,7 +154,7 @@ async function _fromFile(path: string): Promise<Target> {
 function _fromNothing(path: string): Target {
     return {
         name: path,
-        oid: "0".repeat(40), // Null oid
+        oid: NULL_OID, // Null oid
         mode: "",
         data: NULL_PATH, // Null path
     };
@@ -205,6 +191,13 @@ function _printDiff(a: Target, b: Target) {
     Terminal.println(`diff --trak ${ aPath } ${ bPath }`);
     _printDiffMode(a, b);
     _printDiffContent(a, b);
+}
+
+/**
+ * 
+ */
+function _printDiffConflict(path: string) {
+    Terminal.println(`* Unmerged path ${ path }`);
 }
 
 /**

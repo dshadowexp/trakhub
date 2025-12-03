@@ -21,13 +21,13 @@ export type DiffEntry = {
 /**
  * 
  * @param repo 
- * @param sourceCommit 
- * @param targetCommit 
+ * @param sourceCommitHash 
+ * @param targetCommitHash 
  * @returns 
  */
-export async function treeDiff(repo: TrakRepository, sourceCommit: string, targetCommit: string) {
-     const commitObjectA = (await TrakObjectsBase.readObject(repo, sourceCommit)) as TrakCommit;
-     const commitObjectB = (await TrakObjectsBase.readObject(repo, targetCommit)) as TrakCommit;
+export async function treeDiff(repo: TrakRepository, sourceCommitHash: string, targetCommitHash: string) {
+     const commitObjectA = (await TrakObjectsBase.readObject(repo, sourceCommitHash)) as TrakCommit;
+     const commitObjectB = (await TrakObjectsBase.readObject(repo, targetCommitHash)) as TrakCommit;
      return await compareTrees(repo, commitObjectA.treeHash, commitObjectB.treeHash);
 }
 
@@ -49,7 +49,7 @@ async function compareTrees(repo: TrakRepository, treeHashA: string | null, tree
     while (indexA < treeAEntries.length || indexB < treeBEntries.length) {
         if (indexA >= treeAEntries.length) {
             entryB = treeBEntries[indexB];
-            changes.push(...(await detectedDeletion(repo, entryB, prefix)));
+            changes.push(...(await detectedAddition(repo, entryB, prefix)));
             indexB++;
         } else if (indexB >= treeBEntries.length) {
             entryA = treeAEntries[indexA];

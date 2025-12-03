@@ -14,7 +14,7 @@ export class TrakObjectsBase {
         const objectHash = object.hash();
 
         if (repo) {
-            // Create the directory structure (e.g., .git/objects/ab/)
+            // Create the directory structure (e.g., .git/objects/ab/cdefgh...)
             const objectFilePath = await TrakRepository.repoFile(repo, true, "objects",  objectHash.substring(0, 2), objectHash.substring(2));
 
             // Ensure directory exists

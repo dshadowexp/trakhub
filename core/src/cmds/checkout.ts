@@ -1,4 +1,3 @@
-import { getTreeFilesFromCommit, hasUncommittedChanges, updateIndexFromTree, updateWorkingDirectory } from "./-shared";
 import { Terminal } from "../lib/standard";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
@@ -6,6 +5,8 @@ import { resolveStartPoint } from "../lib/revision";
 import { treeDiff } from "../lib/tree-diff";
 import { migrate } from "../lib/migration";
 import { TrakIndex } from "../db/t-index";
+import { createBranch } from "./branch";
+import { hasUncommittedChanges } from "./-shared";
 
 type CheckoutArgs = {
     createBranch?: boolean,
@@ -17,31 +18,6 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
     if (!repo)
         return;
 
-    let targetCommit;
-    if (options.createBranch) {
-        // Check if branch already exists
-        if (await TrakRefs.branchExists(repo, targetRef))
-            throw new Error(`branch ${targetRef} already exists`);
-
-        // Determine starting point for new branch
-        if (!options.startPoint)
-            options.startPoint = "HEAD";
-
-        // Resolve the starting commit
-        targetCommit = await resolveStartPoint(repo, options.startPoint);
-        if (!targetCommit)
-            throw new Error(`Not a valid object name: ${options.startPoint}`);
-
-        // Create the new branch pointing to the commit
-        await TrakRefs.setBranchCommit(repo, targetRef, targetCommit);
-        Terminal.println(`Created new branch ${ targetRef }`);
-    } else {
-        // Verify the reference exists
-        targetCommit = await resolveStartPoint(repo, targetRef);
-        if (!targetCommit)
-            throw new Error(`error: pathspec ${ targetRef } did not match any file(s) known to git`);
-    }
-
     // Resolve and extract files in current commit
     const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);
     if (!currentCommit)
@@ -50,8 +26,30 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
     // Load the index for updates
     await TrakIndex.load(repo);
 
+    // Check if changes are uncommitted
+    if (await hasUncommittedChanges(repo)) {
+        throw new Error(`You have uncommitted changes. Commit or stash them first.`);
+    }
+
+    let targetCommit;
+    if (options.createBranch) {
+        const newBranchCommitHash = await createBranch(repo, targetRef, options.startPoint);
+        if (!newBranchCommitHash) {
+            throw new Error(`Not a valid object name: ${ options.startPoint }`);
+        } else {
+            targetCommit = newBranchCommitHash;
+            Terminal.println(`Created new branch ${ targetRef }`);
+        }
+    } else {
+        // Verify the reference exists
+        targetCommit = await resolveStartPoint(repo, targetRef);
+        if (!targetCommit)
+            throw new Error(`error: pathspec ${ targetRef } did not match any file(s) known to git`);
+    }
+
     // Resolve tree diff
     const changes = await treeDiff(repo, currentCommit, targetCommit);
+    console.log(changes);
 
     // Apply changes with migration
     await migrate(repo, changes);

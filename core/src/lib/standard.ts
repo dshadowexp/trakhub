@@ -2,7 +2,7 @@ import { chmodSync, createReadStream, createWriteStream, Dirent, existsSync, Sta
 import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
-import { dirname, join } from "path";
+import path, { dirname, join } from "path";
 import { spawn } from "child_process";
 import { UnixFileModeEnum } from "../types";
 
@@ -99,7 +99,7 @@ export class FileSystem {
         return statSync(path)
     }
 
-    static setPermssions(path: string, mode: string) {
+    static setMode(path: string, mode: string) {
         const modeConvert = parseInt(mode) & 0o777;
         chmodSync(path, modeConvert);
     }
@@ -109,7 +109,8 @@ export class FileSystem {
      * @param stats 
      * @returns 
      */
-    static mode(stats: Stats) {
+    static mode(path: string) {
+        const stats = this.stats(path);
         return stats.isSymbolicLink() ? UnixFileModeEnum.SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? UnixFileModeEnum.EXECUTABLE_FILE : UnixFileModeEnum.REGULAR_FILE;
     }
 
@@ -207,11 +208,12 @@ export class FileSystem {
             const [currentDirectory, parent] = stack.pop()!;
 
             for (const dirEntry of (await FileSystem.readDirectory(currentDirectory, true) as Dirent[])) {
-                const { name } = dirEntry;
+                const fullPath = join(parent, dirEntry.name);
+
                 if (dirEntry.isFile()) {
-                    files.push(join(parent, name));
+                    files.push(fullPath);
                 } else if (dirEntry.isDirectory()) {
-                    stack.push([dirEntry.name, join(parent, name)])
+                    stack.push([dirEntry.name, fullPath])
                 }
             }
         }

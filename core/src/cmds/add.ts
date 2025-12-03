@@ -1,4 +1,4 @@
-import { resolve, relative, join, delimiter } from "path";
+import { resolve, relative, join } from "path";
 import { FileSystem } from "../lib/standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRepository } from "../repository";

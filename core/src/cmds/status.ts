@@ -1,53 +1,87 @@
-import { getTreeFilesFromCommit, getStatus } from "./-shared";
+import { getTreeFilesFromCommit } from "./-shared";
 import { FileSystem, Terminal } from "../lib/standard";
 import { TrakBlob } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
 import type { TrakTreeEntry } from "../types";
+import { asyncFilter, difference, intersection } from "../util";
 
 export async function status(isPorcelain: boolean = false) {
     const repo = await TrakRepository.repoFind();
     if (!repo)
         return;
-
-    // Get current branch
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    const currentHeadCommit = await TrakRefs.getBranchCommit(repo, currentBranch);
-    if (!currentHeadCommit) {
-        Terminal.println(`No commits yet`);
-        return;
-    }
    
-    // Get committed files
-    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentHeadCommit)).reduce((current, value) => {
-        return { ...current, [value.name]: value }
-    }, {});
-
     // Load index (Staging area)
     await TrakIndex.load(repo);
-    const indexEntries = TrakIndex.entries;
-
-    // Scan working directory
-    const workingFiles = await FileSystem.listFiles(repo.workTree);
 
     // COMPARE HEAD vs INDEX (staged changes)
-    const indexAgainstHead = await getStatus(Object.keys(indexEntries), Object.keys(committedFiles), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => committedFiles[path].oid);
+    const indexAgainstHead = await compareHeadAgainstIndex(repo);
  
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const workingDirAgainstIndex = await getStatus(workingFiles, Object.keys(indexEntries), async (path) => indexEntries[path].sha1.toString("hex"), async (path) => {
-        const fileData = await FileSystem.readFile(path);
-        const blob = new TrakBlob(fileData);
-        return blob.hash();
-    });
+    const workingDirAgainstIndex = await compareWorkingDirectoryAgainstIndex(repo);
     
     // 6. DISPLAY RESULTS
     if (isPorcelain) {
         printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex);
     } else {
-        process.stdout.write(`On branch ${currentBranch}\n`);
+        const currentBranch = await TrakRefs.getCurrentBranch(repo);
+        Terminal.println(`On branch ${ currentBranch }`);
         printLongFormat(indexAgainstHead, workingDirAgainstIndex);
     }
+}
+
+/**
+ * 
+ * @param repo 
+ * @returns 
+ */
+export async function compareHeadAgainstIndex(repo: TrakRepository) {
+    // Get current head commit
+    const currentHeadCommit = await TrakRefs.getCurrentHeadCommit(repo);
+
+    // Get committed files
+    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentHeadCommit!)).reduce((current, value) => {
+        return { ...current, [value.name]: value }
+    }, {});
+
+    return await getStatus(TrakIndex.getFilePaths(), Object.keys(committedFiles), async (path) => TrakIndex.getEntry(path)!.sha1.toString("hex"), async (path) => committedFiles[path].oid);
+}
+
+/**
+ * 
+ * @param repo 
+ * @returns 
+ */
+export async function compareWorkingDirectoryAgainstIndex(repo: TrakRepository) {
+    // Scan working directory
+    const workingFiles = await FileSystem.listFiles(repo.workTree);
+
+    return await getStatus(workingFiles, TrakIndex.getFilePaths(), async (path) => {
+        const fileData = await FileSystem.readFile(path);
+        const blob = new TrakBlob(fileData);
+        return blob.hash();
+    }, async (path) => TrakIndex.getEntry(path)!.sha1.toString("hex"));
+}
+
+/**
+ * 
+ * @param filesA 
+ * @param filesB 
+ * @param getFileAOid 
+ * @param getFileBOid 
+ * @returns 
+ */
+async function getStatus(filesA: string[], filesB: string[], getFileAOid: (path: string) => Promise<string>, getFileBOid: (path: string) => Promise<string>): Promise<[string[], string[], string[]]> {
+    const added = difference<string>(filesA, filesB);
+    const modified = await asyncFilter<string>(intersection<string>(filesA, filesB), async (path) => { 
+        const a = await getFileAOid(path);
+        const b = await getFileBOid(path);
+        return a != b;
+    });
+    const deleted = difference<string>(filesB, filesA);
+    
+    return [added, modified, deleted];
 }
 
 /**
@@ -75,6 +109,7 @@ function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], 
 function printLongFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]]) {
     const [stagedNew, stagedModified, stagedDeleted] = indexAgainstHead;
     const [untracked, unstagedModified, unstagedDeleted] = workingDirAgainstIndex;
+    const conflicts: string[] = [];
 
     // Changes to be committed (staged)
     if (stagedNew.length > 0 || stagedModified.length > 0 || stagedDeleted.length > 0) {
@@ -83,6 +118,13 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
         printFilesList(stagedNew, "\tnew file");
         printFilesList(stagedModified, "\tmodified");
         printFilesList(stagedDeleted, "\tdeleted");
+        Terminal.println("");
+    }
+
+    // Unmerged paths
+    if (conflicts.length > 0) {
+        Terminal.println("Unmerged paths:");
+        printFilesList(conflicts, "\t");
         Terminal.println("");
     }
 

@@ -26,23 +26,7 @@ export type DirTree = { [name: string]: DirTree | string };
 
 export type TrakTreeEntry = { mode: string, name: string, oid: string };
 
-export type TrakIndexEntry = {
-    ctimeSec: number;
-    ctimeNano: number;
-    mtimeSec: number;
-    mtimeNano: number;
-    dev: number;
-    ino: number;
-    mode: number;
-    uid: number;
-    gid: number;
-    size: number;
-    sha1: Buffer;
-    flags: number;
-    path: string;
-}
 
-export type TrakIndexRecord = Record<string, TrakIndexEntry>;
 
 export class TrakAuthor {
     constructor(private _name: string, private _email: string, private _timestamp: number = 0) {

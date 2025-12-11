@@ -4,6 +4,7 @@ import { catFile } from "./cmds/cat-file";
 import { checkout } from "./cmds/checkout";
 import { commit } from "./cmds/commit";
 import { commitTree } from "./cmds/commit-tree";
+import { config } from "./cmds/config";
 import { diff } from "./cmds/diff";
 import { hashObject } from "./cmds/hash-object";
 import { createRepo } from "./cmds/init";
@@ -65,6 +66,12 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'merge') {
             const name = args.slice(1).length > 1 ? args[2] : args[1];
             await merge(name);
+        } else if (args[0] === 'config') {
+            await config({ 
+                key: "user.name", 
+                value: "John Doe", 
+                options: { global: true } 
+            });
         } else if (args[0] === 'pull') {
 
         } else if (args[0] === 'push') {

@@ -1,10 +1,13 @@
-import { chmodSync, createReadStream, createWriteStream, Dirent, existsSync, Stats, statSync } from "fs";
+import { spawn } from "child_process";
+import { chmodSync, createReadStream, createWriteStream, Dirent, existsSync, statSync } from "fs";
 import { unlink, rmdir, readdir } from "fs/promises";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
-import path, { dirname, join } from "path";
-import { spawn } from "child_process";
+import { dirname, join } from "path";
 import { UnixFileModeEnum } from "../types";
+
+export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb', '.DS_Store', 'fakeconfig.txt'];
+const ignoreSet = new Set(IGNORE);
 
 export class Terminal {
     /**
@@ -76,9 +79,6 @@ export class Terminal {
         }
     }
 }
-
-export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb', '.DS_Store'];
-const ignoreSet = new Set(IGNORE);
 
 export class FileSystem {
     /**

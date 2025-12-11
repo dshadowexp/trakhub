@@ -1,5 +1,3 @@
-//abstraction for config
-
 import { FileSystem } from "../lib/standard";
 
 type ConfigFileLevel = 'local' | 'global' | 'system';

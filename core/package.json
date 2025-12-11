@@ -6,6 +6,7 @@
     "dev": "bun run main.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "tsx": "^4.21.0"
   }
 }

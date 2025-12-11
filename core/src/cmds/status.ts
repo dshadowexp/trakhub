@@ -147,8 +147,9 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
     
     // Clean working tree message
     if (stagedNew.length === 0 && stagedModified.length === 0 && stagedDeleted.length === 0 && 
-            unstagedModified.length === 0 && unstagedDeleted.length === 0 && untracked.length === 0)
-        Terminal.println("Nothing to commit, working tree clean");
+            unstagedModified.length === 0 && unstagedDeleted.length === 0 && untracked.length === 0) {
+                Terminal.println("nothing to commit, working tree clean");
+    }
 }
 
 /**

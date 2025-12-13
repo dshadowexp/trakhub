@@ -49,7 +49,6 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
 
     // Resolve tree diff
     const changes = await treeDiff(repo, currentCommit, targetCommit);
-    console.log(changes);
 
     // Apply changes with migration
     await migrate(repo, changes);

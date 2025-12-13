@@ -1,4 +1,4 @@
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { mkdir } from "fs/promises";
 import { type TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
@@ -6,6 +6,15 @@ import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
 import { difference } from "../util";
 import { FileSystem, Terminal } from "../lib/standard";
 import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
+
+// ************************************************************************************************/
+// Defintions
+
+export interface Command {
+    name: string;
+    description: string;
+    execute(args: string[]): Promise<void>;
+}
 
 // ************************************************************************************************/
 // Helper functions
@@ -114,4 +123,26 @@ export async function extractFilesFromTree(repo: TrakRepository, treeHash: strin
     }
 
     return files;
+}
+
+/**
+ * 
+ * @param paths 
+ * @param workTree 
+ * @returns 
+ */
+export function makePathsAbsolute(paths: string[], workTree: string): Set<string> {
+    // Make paths absolute
+    const absolutePaths = new Set<string>();
+    for (const path of paths) {
+        // Resolve path argument
+        const absolutePath = resolve(path);
+        if (absolutePath.startsWith(workTree)) {
+            absolutePaths.add(absolutePath);
+        } else {
+            throw new Error(`Cannot remove paths outside of worktree: ${ path }`);
+        }
+    }
+
+    return absolutePaths;
 }

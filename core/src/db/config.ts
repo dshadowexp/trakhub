@@ -1,63 +1,51 @@
 import { FileSystem } from "../lib/standard";
 
-type ConfigFileLevel = 'local' | 'global' | 'system';
+export type ConfigFileLevel = 'local' | 'global' | 'system';
 
-export class TrakConfig {
-    private static async _getConfigFilePath(level: ConfigFileLevel) {
-        switch (level) {
-            case 'local':
-                return ".trak/config";
-            case 'global':
-                return "~/.trakconfig";
-            case 'system':
-                return "/etc/trakconfig";
-            default:
-                throw new Error("Specify config level");
-        }
+export async function getConfig(level: ConfigFileLevel): Promise<TrakConfig> {
+    const configFilePath = _getConfigFilePath(level);
+    
+    // Check if file exists
+    if (!FileSystem.exists(configFilePath)) {
+        // Return empty config if file doesn't exist
+        return new TrakConfig();
+    }
+    
+    const gitConfigText = (await FileSystem.readFile(configFilePath)).toString();
+    return TrakConfig.parse(gitConfigText);
+}
+
+export async function setConfig(level: ConfigFileLevel, content: string): Promise<void> {
+    const configFilePath = _getConfigFilePath(level);
+    // Create parent directories if they don't exist
+    if (level === 'global') {
+        // const homeDir = await FileSystem.getHomeDirectory();
+        // FileSystem.ensureDirectoryExists(homeDir);
+    } else if (level === 'local') {
+        // FileSystem.ensureDirectoryExists('.trak');
     }
 
-    private static async _getConfig(level: ConfigFileLevel): Promise<Config> {
-        const configFilePath = await this._getConfigFilePath(level);
-        const gitConfigText = (await FileSystem.readFile(configFilePath)).toString();
-        return Config.parse(gitConfigText);
-    }
+    await FileSystem.writeFile(configFilePath, content);
+}
 
-    private static async _setConfig(level: ConfigFileLevel, content: string): Promise<void> {
-        const configFilePath = await this._getConfigFilePath(level);
-        await FileSystem.writeFile(configFilePath, content);
-    }
-
-    static async set(level: ConfigFileLevel, name: string, key: string, value: string, subsection: string | null = null): Promise<void> {
-        const config = await this._getConfig(level);
-        config.set(name, key, value, subsection);
-        await this._setConfig(level, config.toString());
-    }
-
-    static async get(level: ConfigFileLevel, name: string, key: string, subsection: string | null = null): Promise<string | null> {
-        const config = await this._getConfig(level);
-        return config.get(name, key, subsection);
-    }
-
-    static async getAll(level: ConfigFileLevel, name: string, key: string, subsection: string | null = null): Promise<string[]> {
-        const config = await this._getConfig(level);
-        return config.getAll(name, key, subsection);
-    }
-
-    static async findAll(name: string, key: string, subsection: string | null = null): Promise<string[]> {
-        let values: string[] = [];
-        for (const level of ['local', 'global', 'system']) {
-            const response = await this.getAll(level as ConfigFileLevel, name, key, subsection);
-            values = [...values, ...response];
-        }
-        return values;
+function _getConfigFilePath(level: ConfigFileLevel) {
+    switch (level) {
+        case 'local':
+            return ".trak/config";
+        case 'global':
+            return "./.trakconfig"; //should be ~
+        case 'system':
+            return "/etc/trakconfig";
+        default:
+            throw new Error("Specify config level");
     }
 }
 
-class Config {
-    private sections: Map<string, Section[]> = new Map();
+export class TrakConfig {
+    sections: Map<string, Section[]> = new Map();
 
-    static parse(text: string): Config {
-        const config = new Config();
+    static parse(text: string): TrakConfig {
+        const config = new TrakConfig();
         const lines = text.split('\n');
         let currentSection: Section | null = null;
 
@@ -122,6 +110,11 @@ class Config {
         return result;
     }
 
+    removeSection(name: string): boolean {
+        const key = this.sectionKey(name, null);
+        return this.sections.delete(key);
+    }
+
     get(name: string, key: string, subsection: string | null = null): string | null {
         const section = this.getSection(name, subsection);
         return section ? section.getVariable(key) : null;
@@ -162,6 +155,16 @@ class Config {
         if (section) {
             section.unset(key);
         }
+    }
+
+    list(): string[] {
+        const lines: string[] = [];
+        for (const sections of this.sections.values()) {
+            for (const section of sections) {
+                lines.push(...section.listVariables());
+            }
+        }
+        return lines;
     }
 
     toString(): string {
@@ -236,6 +239,18 @@ class Section {
         this.variables.delete(normalized);
     }
 
+    listVariables(): string[] {
+        const result: string[] = [];
+        const prefix = `${ this.name }${ this.subsection ? `.${this.subsection}` : '' }`;
+        for (const vars of this.variables.values()) {
+            for (const variable of vars) {
+                result.push(`${ prefix }.${ variable.name }=${ variable.value }`);
+            }
+        }
+
+        return result;
+    }
+
     lines(): string[] {
         const result: string[] = [this.header()];
         
@@ -282,28 +297,28 @@ class Variable {
     }
 }
 
-// // Example usage demonstrating the Building Git approach
-// const gitConfigText = `# Git configuration file
-// [core]
-// 	repositoryformatversion = 0
-// 	filemode = true
-// 	bare = false
-// 	logallrefupdates = true
+// Example usage demonstrating the Building Git approach
+const gitConfigText = `# Git configuration file
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
 
-// [remote "origin"]
-// 	url = https://github.com/user/repo.git
-// 	fetch = +refs/heads/*:refs/remotes/origin/*
+[remote "origin"]
+	url = https://github.com/user/repo.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
 
-// [branch "main"]
-// 	remote = origin
-// 	merge = refs/heads/main
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main
 
-// [user]
-// 	name = John Doe
-// 	email = john@example.com
-// `;
+[user]
+	name = John Doe
+	email = john@example.com
+`;
 
-// const config = Config.parse(gitConfigText);
+// const config = TrakConfig.parse(gitConfigText);
 
 // console.log('Core repository format version:', config.get('core', 'repositoryformatversion'));
 // console.log('Core repository file mode:', config.get('core', 'filemode'));
@@ -315,4 +330,5 @@ class Variable {
 // config.add('remote', 'pushurl', 'https://github.com/user/repo-push.git', 'origin');
 
 // console.log('\n=== Regenerated Config ===\n');
-// console.log(config.toString());
+// console.log(config.sections);
+// console.log(config.list());

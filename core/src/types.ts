@@ -9,6 +9,11 @@ export enum PackFileObjectTypeEnum {
   REF_DELTA,
 }
 
+export type EntryInfo = {
+    oid?: string;
+    mode?: string;
+}
+
 export enum TrakObjectTypeEnum {
     COMMIT = "commit",
     TREE = "tree",
@@ -25,8 +30,6 @@ export enum UnixFileModeEnum {
 export type DirTree = { [name: string]: DirTree | string };
 
 export type TrakTreeEntry = { mode: string, name: string, oid: string };
-
-
 
 export class TrakAuthor {
     constructor(private _name: string, private _email: string, private _timestamp: number = 0) {

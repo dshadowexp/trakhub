@@ -27,6 +27,14 @@ export class Terminal {
     }
 
     /**
+     * 
+     * @param err 
+     */
+    static printerr(err: string) {
+        process.stderr.write(err);
+    }
+
+    /**
      * Returns a writable stream to a pager process (less).
      * If the pager process cannot be spawned, it returns process.stdout as a fallback.
      *
@@ -72,7 +80,6 @@ export class Terminal {
             });
 
             return pagerStream;
-
         } catch (e) {
             // If spawning `less` fails for any reason, fall back to stdout.
             return process.stdout;

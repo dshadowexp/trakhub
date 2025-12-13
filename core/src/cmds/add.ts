@@ -3,6 +3,7 @@ import { FileSystem } from "../lib/standard";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { TrakRepository } from "../repository";
 import { TrakIndex } from "../db/t-index";
+import { makePathsAbsolute } from "./-shared";
 
 export async function add(paths: string[]) {
     const repo = await TrakRepository.repoFind();
@@ -10,16 +11,7 @@ export async function add(paths: string[]) {
         return;
     
     // Make paths absolute
-    const absolutePaths = new Set<string>();
-    for (const path of paths) {
-        // Resolve path argument
-        const absolutePath = resolve(path);
-        if (absolutePath.startsWith(repo.workTree)) {
-            absolutePaths.add(absolutePath);
-        } else {
-            throw new Error(`Cannot remove paths outside of worktree: ${ path }`);
-        }
-    }
+    const absolutePaths = makePathsAbsolute(paths, repo.workTree);
 
     // Resolve path argument
     const fullPath = resolve(paths[0]);
@@ -55,7 +47,7 @@ async function _addFile(filePath: string, repo: TrakRepository) {
     // Create and Store blob object in database
     const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
     // Add entry to Index entries
-    TrakIndex.add(relative(repo.workTree, filePath), blobHash);
+    TrakIndex.addEntry(relative(repo.workTree, filePath), blobHash);
 }
 
 /**
@@ -88,7 +80,7 @@ async function _addDirectory(dirPath: string, repo: TrakRepository) {
                 // Create and store blob object from content
                 const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
                 // Add entry to Index entries
-                TrakIndex.add(relative(repo.workTree, fullPath), blobHash);
+                TrakIndex.addEntry(relative(repo.workTree, fullPath), blobHash);
             }
         }
     }

@@ -1,3 +1,4 @@
+import { getConfig } from "../db/config";
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { Terminal } from "../lib/standard";
@@ -29,8 +30,9 @@ export async function commitTree(options: CommitTreeArgs, repo?: TrakRepository 
     }
 
     // Construct author
-    const name = "Random"; // load from config
-    const email = "random@gmail.com"; // load from config
+    const cfg = await getConfig('global');  
+    const name = process.env.TRAK_AUTHOR_NAME || cfg.get('user', 'name') || 'Unknown';
+    const email = process.env.TRAK_AUTHOR_EMAIL || cfg.get('user', 'email') || 'Unknown';
     const author = new TrakAuthor(name, email);
     const committer = new TrakAuthor(name, email);
 

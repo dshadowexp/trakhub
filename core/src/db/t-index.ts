@@ -1,30 +1,162 @@
 import { TrakRepository } from "../repository";
 import { FileSystem } from "../lib/standard";
 import { createHash } from "crypto";
+import type { EntryInfo } from "../types";
 
 const HEADER_SIZE = 12;
 const SIGNATURE = "DIRC";
 const MAX_PATH_SIZE = 0xfff;
 
-export type TrakIndexEntry = {
-    ctimeSec: number;
-    ctimeNano: number;
-    mtimeSec: number;
-    mtimeNano: number;
-    dev: number;
-    ino: number;
-    mode: number;
-    uid: number;
-    gid: number;
-    size: number;
-    sha1: Buffer;
-    flags: number;
-    path: string;
+export class IndexEntry {
+    constructor(
+        private _ctimeSec: number,
+        private _ctimeNano: number,
+        private _mtimeSec: number,
+        private _mtimeNano: number,
+        private _dev: number,
+        private _ino: number,
+        private _mode: number,
+        private _uid: number,
+        private _gid: number,
+        private _size: number,
+        private _sha1: Buffer,
+        private _flags: number,
+        private _path: string
+    ) {}
+
+    get ctimeSec(): number { return this._ctimeSec; }
+    get ctimeNano(): number { return this._ctimeNano; }
+    get mtimeSec(): number { return this._mtimeSec; }
+    get mtimeNano(): number { return this._mtimeNano; }
+    get dev(): number { return this._dev; }
+    get ino(): number { return this._ino; }
+    get mode(): number { return this._mode; }
+    get uid(): number { return this._uid; }
+    get gid(): number { return this._gid; }
+    get size(): number { return this._size; }
+    get sha1(): Buffer { return this._sha1; }
+    get flags(): number { return this._flags; }
+    get path(): string { return this._path; }
+    get stage(): number {
+        return (this._flags >> 12) & 0x3;
+    }
+
+    /**
+     * 
+     * @param path 
+     * @param hash 
+     * @returns 
+     */
+    static createFromPathAndHash(path: string, hash: string): IndexEntry {
+        // Get file stats
+        const stats = FileSystem.stats(path);
+        const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
+        
+        // Return the values of the index entry
+        return new IndexEntry(
+            Math.floor(stats.ctime.getTime() / 1000),
+            stats.ctime.getMilliseconds(),
+            Math.floor(stats.mtime.getTime() / 1000),
+            stats.mtime.getMilliseconds(),
+            stats.dev,
+            stats.ino,
+            parseInt(FileSystem.mode(path)),
+            stats.uid,
+            stats.gid,
+            stats.size,
+            Buffer.from(hash, "hex"),
+            flags,
+            path,
+        );
+    }
+
+    static createFromDb(path: string, item: EntryInfo, n: number) {
+        return new IndexEntry(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            parseInt(item.mode!),
+            0,
+            0,
+            0,
+            Buffer.from(item.oid!, "hex"),
+            ( n << 12) | Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE),
+            path,
+        );
+    }
 }
 
 export class TrakIndex {
     static version = 2;
-    private static _entries: TrakIndexEntry[] = [];
+    private static _entries: IndexEntry[] = [];
+
+    static get entries(): IndexEntry[] {
+        return this._entries;
+    }
+
+    static getEntry(path: string, stage: number = 0): IndexEntry | undefined {
+        return this._entries.find(value => value.path === path && value.stage === stage);
+    }
+
+    static hasConflicts(): boolean {
+        return this.entries.some(value => value.stage > 0);
+    }
+
+    static isTrackedFile(path: string): boolean {
+        return [0, 1, 2, 3].some((value) => this.getEntry(path, value) !== undefined);
+    }
+
+    static isTrackDirectory(path: string): boolean {
+        return false;
+    }
+
+    private static _removeWithStage(path: string, stage: number) {
+        this._entries = this._entries.filter(entry => entry.path !== path || entry.stage !== stage);
+    }
+
+    static addEntry(path: string, hash: string) {
+        console.log(`+>>>>Index adding - ${ path }`);
+        // Remove all stages for this path
+        [1, 2, 3].forEach((value) => {
+            this._removeWithStage(path, value);
+        });
+
+        // Only add if the path doesn't exist in any remaining entries
+        const exists = this._entries.some(entry => entry.path === path);
+        if (!exists) {
+            const entry = IndexEntry.createFromPathAndHash(path, hash);
+            this._entries.push(entry);
+        }
+    }
+
+    static removeEntry(path: string) {
+        console.log(`-<<<<<Index removing - ${ path }`);
+        [0, 1, 2, 3].forEach((value) => {
+            this._removeWithStage(path, value);
+        });
+        console.log(this.getFilePaths());
+    }
+    
+    static addConflictSet(path: string, items: (EntryInfo | undefined)[]) {
+        this._removeWithStage(path, 0);
+        items.forEach((item, n) => {
+            if (!item) return;
+            const entry = IndexEntry.createFromDb(path, item, n + 1);
+            this._entries.push(entry);
+        });
+    }
+
+    static addFromDb(path: string, item: EntryInfo) {
+        const entry = IndexEntry.createFromDb(path, item, 0);
+        this._entries.push(entry);
+    }
+
+    static getFilePaths(): string[] {
+        return [...new Set(this._entries.map(value => value.path))];
+    }
 
     /**
      * 
@@ -44,140 +176,6 @@ export class TrakIndex {
      */
     private static _writeUInt32BE(value: number, buffer: Buffer, offset: number) {
         buffer.writeUInt32BE(value, offset);
-    }
-
-    /**
-     * 
-     * @param path 
-     * @param hash 
-     * @returns 
-     */
-    private static _createIndexEntry(path: string, hash: string): TrakIndexEntry {
-        // Get file stats
-        const stats = FileSystem.stats(path);
-        const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
-        
-        // Return the values of the index entry
-        return {
-            ctimeSec: Math.floor(stats.ctime.getTime() / 1000),
-            ctimeNano: stats.ctime.getMilliseconds(),
-            mtimeSec: Math.floor(stats.mtime.getTime() / 1000),
-            mtimeNano: stats.mtime.getMilliseconds(),
-            dev: stats.dev,
-            ino: stats.ino,
-            mode: parseInt(FileSystem.mode(path)),
-            uid: stats.uid,
-            gid: stats.gid,
-            size: stats.size,
-            sha1: Buffer.from(hash, "hex"),
-            flags: flags,
-            path,
-        };
-    }
-
-    private static _createIndexEntryFromDb(path: string, item: { mode: string, hash: string}, n: number) {
-        const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
-        return {
-            ctimeSec: 0,
-            ctimeNano: 0,
-            mtimeSec: 0,
-            mtimeNano: 0,
-            dev: 0,
-            ino: 0,
-            mode: parseInt(item.mode),
-            uid: 0,
-            gid: 0,
-            size: 0,
-            sha1: Buffer.from(item.hash, "hex"),
-            flags: ( n << 12) | flags,
-            path,
-        };
-    }
-
-    private static _stage(flags: number): number {
-        return (flags >> 12) & 0x3;
-    }
-
-    private static _removeWithStage(path: string, stage: number) {
-        this._entries = this._entries.filter(value => value.path === path && this._stage(value.flags) === stage);
-    }
-
-    /**
-     * 
-     */
-    static get entries(): TrakIndexEntry[] {
-        return this._entries;
-    }
-
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
-    static isTracked(path: string): boolean {
-        return [1, 2, 3].some((value) => this.getEntry(path, value) !== undefined);
-    }
-
-    /**
-     * 
-     * @param path 
-     * @param stage 
-     * @returns 
-     */
-    static getEntry(path: string, stage: number = 0): TrakIndexEntry | undefined {
-        return this._entries.find(value => value.path === path && this._stage(value.flags) === stage);
-    }
-
-    /**
-     * 
-     * @param path 
-     * @param hash 
-     */
-    static add(path: string, hash: string) {
-        console.log(`+>>>>Index adding - ${ path }`);
-        const entry = this._createIndexEntry(path, hash);
-        this._entries.push(entry);
-    }
-
-    /**
-     * 
-     * @param path 
-     * @param items 
-     */
-    static addConflictSet(path: string, items: { mode: string, hash: string}[]) {
-        this._removeWithStage(path, 0);
-        items.forEach((value, i) => {
-            const entry = this._createIndexEntryFromDb(path, value, i + 1);
-            this._entries.push(entry);
-        })
-    }
-
-    /**
-     * 
-     * @returns 
-     */
-    static hasConflict() {
-        return this._entries.some(value => this._stage(value.flags) > 0);
-    }
-
-    /**
-     * 
-     * @param path 
-     */
-    static remove(path: string) {
-        console.log(`-<<<<<Index removing - ${ path }`);
-        [1, 2, 3].forEach((value) => {
-            this._removeWithStage(path, value);
-        });
-        console.log(this.getFilePaths());
-    }
-
-    static getFilePaths(): string[] {
-        return this._entries.map(value => value.path);
-    }
-
-    static hasConflicts(): boolean {
-        return this.entries.some(value => this._stage(value.flags) > 0);
     }
 
     /**
@@ -210,7 +208,7 @@ export class TrakIndex {
         if (signature !== SIGNATURE) throw new Error("Invalid index signature");
         if (version !== this.version) throw new Error(`Unsupported index version ${version}`);
 
-        const entries: TrakIndexEntry[] = [];
+        const entries: IndexEntry[] = [];
 
         let offset = 12;                          // start of entries
         const end = data.length - 20;             // before checksum
@@ -244,7 +242,7 @@ export class TrakIndex {
             const filePath = data.subarray(fieldsEnd, pathEnd).toString("utf8");
 
             // Build entry object
-            entries.push({
+            entries.push(new IndexEntry(
                 ctimeSec,
                 ctimeNano,
                 mtimeSec,
@@ -257,8 +255,8 @@ export class TrakIndex {
                 size,
                 sha1,
                 flags,
-                path: filePath,
-            });
+                filePath,
+            ));
 
             // Entry size with padding:
             const pathLength = pathEnd - fieldsEnd;
@@ -346,7 +344,7 @@ export class TrakIndex {
      * 
      * @param repo 
      */
-    static async clear() {
+    static clear() {
         this._entries = []
     }
 }

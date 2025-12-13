@@ -2,7 +2,7 @@ import { TrakIndex } from "../db/t-index";
 import { Terminal } from "../lib/standard";
 import { TrakRepository } from "../repository";
 
-type LsFilesArgs = {
+interface LsFilesArgs {
     verbose?: boolean
     stage?: boolean
 }
@@ -22,7 +22,7 @@ export async function lsFiles(options: LsFilesArgs = {}) {
         let info = entry.path;
 
         if (options.stage) {
-            info = `${ entry.mode } ${ entry.sha1.toString("hex") } ${ 'stage' } ${ info }`;
+            info = `${ entry.mode } ${ entry.sha1.toString("hex") } ${ entry.stage } ${ info }`;
         } else if (options.verbose) {
 
         }

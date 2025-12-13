@@ -1,246 +1,232 @@
+import type { ConfigFileLevel } from "../db/config";
+import { getConfig, setConfig } from "../db/config"
 import { TrakRepository } from "../repository";
-import { TrakConfig } from "../db/config";
 import { Terminal } from "../lib/standard";
 
-type ConfigOptions = {
-  global?: boolean;
-  system?: boolean;
-  local?: boolean;
-  list?: boolean;
-  unset?: boolean;
-  add?: boolean;
-  get?: boolean;
-  getAll?: boolean;
-  edit?: boolean;
-};
+interface ConfigArgs {
+    level?: ConfigFileLevel,
+    key?: string,
+    value?: string,
+    list?: boolean,
+    showOrigin?: boolean,
+    showScope?: boolean,
+    unset?: boolean,
+    unsetAll?: boolean,
+    removeSection?: boolean,
+    add?: boolean,
+    get?: boolean,
+    getAll?: boolean
+}
 
-type ConfigArgs = {
-  key?: string;
-  value?: string;
-  options?: ConfigOptions;
-};
-
-/**
- * Handle git config command
- * 
- * Examples:
- * - config({ key: "user.name", value: "John", options: { global: true } })
- * - config({ key: "user.name", options: { get: true, global: true } })
- * - config({ options: { list: true, global: true } })
- * - config({ key: "remote.origin.fetch", options: { getAll: true } })
- */
-export async function config(args: ConfigArgs = {}) {
+export async function config(args: ConfigArgs) {
     const repo = await TrakRepository.repoFind();
-    if (!repo)
+    if (!repo && args.level === 'local') {
+        Terminal.println("fatal: not in a trak repository");
         return;
-    
-    const { key, value, options = {} } = args;
+    }
 
-    // Determine config level (default to local)
-    const level = options.global ? 'global' : 
-                    options.system ? 'system' : 
-                    'local';
+    const level: ConfigFileLevel = args.level || 'local';
 
     try {
-        // Handle --list: show all config values
-        if (options.list) {
-            await handleList(level);
+        // List all configurations
+        if (args.list) {
+            await listConfig(level, args);
             return;
         }
 
-        // Handle --edit: open config file in editor
-        if (options.edit) {
-            await handleEdit(level);
+        // Remove entire section
+        if (args.removeSection && args.key) {
+            await removeSection(level, args.key);
             return;
         }
 
-        // Key is required for other operations
-        if (!key) {
-            throw new Error("Config key is required");
-        }
-
-        const { section, subsection, variableKey } = parseKey(key);
-
-        // Handle --unset: remove a config value
-        if (options.unset) {
-            await TrakConfig.set(level, section, variableKey, "", subsection);
-            Terminal.println(`Unset ${key} in ${level} config`);
+        // Unset a configuration key
+        if (args.unset && args.key) {
+            await unsetConfig(level, args.key, false);
             return;
         }
 
-        // Handle --get-all: get all values for a key
-        if (options.getAll) {
-            const values = await TrakConfig.getAll(level, section, variableKey, subsection);
-            if (values.length === 0) {
-                Terminal.println(`No values found for ${key}`);
-            } else {
-                values.forEach(v => Terminal.println(v));
-            }
+        // Unset all values for a key
+        if (args.unsetAll && args.key) {
+            await unsetConfig(level, args.key, true);
             return;
         }
 
-        // Handle --get or just reading a value
-        if (options.get || !value) {
-            const result = await TrakConfig.get(level, section, variableKey, subsection);
-            if (result === null) {
-                throw new Error(`Config key '${key}' not found`);
-            }
-            Terminal.println(result);
+        // Get all values for a key
+        if (args.getAll && args.key) {
+            await getAllConfig(level, args.key);
             return;
         }
 
-        // Handle --add: add a value (allows multiple values)
-        if (options.add) {
-            const configInstance = await (TrakConfig as any)._getConfig(level);
-            configInstance.add(section, variableKey, value, subsection);
-            await (TrakConfig as any)._setConfig(level, configInstance.toString());
-            Terminal.println(`Added ${key} = ${value} in ${level} config`);
+        // Get a single value
+        if (args.get && args.key) {
+            await getConfigValue(level, args.key);
             return;
         }
 
-        // Default: set a value (replaces existing)
-        if (value) {
-            await TrakConfig.set(level, section, variableKey, value, subsection);
-            Terminal.println(`Set ${key} = ${value} in ${level} config`);
+        // Add a value (allows multiple values for same key)
+        if (args.add && args.key && args.value) {
+            await addConfig(level, args.key, args.value);
             return;
         }
 
-        throw new Error("Invalid config command");
+        // Set a value (default behavior)
+        if (args.key && args.value) {
+            await setConfigValue(level, args.key, args.value);
+            return;
+        }
+
+        // Get a value (if only key is provided, no explicit --get flag)
+        if (args.key && !args.value) {
+            await getConfigValue(level, args.key);
+            return;
+        }
+
+        Terminal.println("usage: trak config [<options>]");
+        Terminal.println("  --local, --global, --system    specify config level");
+        Terminal.println("  --list, -l                     list all config");
+        Terminal.println("  --get <key>                    get value for key");
+        Terminal.println("  --get-all <key>                get all values for key");
+        Terminal.println("  --add <key> <value>            add a new value");
+        Terminal.println("  --unset <key>                  remove a key");
+        Terminal.println("  --unset-all <key>              remove all values for key");
+        Terminal.println("  --remove-section <name>        remove a section");
+
     } catch (error) {
-        Terminal.println(`Error: ${error instanceof Error ? error.message : String(error)}`);
-        throw error;
+        Terminal.println(`error: ${error}`);
     }
 }
 
-/**
- * Parse config key into section, subsection, and variable
- * Examples:
- * - "user.name" -> { section: "user", subsection: null, variableKey: "name" }
- * - "remote.origin.url" -> { section: "remote", subsection: "origin", variableKey: "url" }
- * - "branch.main.merge" -> { section: "branch", subsection: "main", variableKey: "merge" }
- */
-function parseKey(key: string): { 
-    section: string; 
-    subsection: string | null; 
-    variableKey: string;
-} {
-    const parts = key.split('.');
+async function listConfig(level: ConfigFileLevel, args: ConfigArgs) {
+    const cfg = await getConfig(level);
+    const lines = cfg.list();
 
-    if (parts.length < 2) {
-        throw new Error(`Invalid config key format: ${key}`);
-    }
+    for (const line of lines) {
+        let output = line;
 
-    // Check if this is a subsection key (section.subsection.key)
-    // Common patterns: remote.origin.url, branch.main.merge
-    const sectionsWithSubsections = ['remote', 'branch', 'submodule', 'url'];
-    
-    if (parts.length === 3 && sectionsWithSubsections.includes(parts[0])) {
-        return {
-            section: parts[0],
-            subsection: parts[1],
-            variableKey: parts[2]
-        };
-    }
-
-    // Default case: section.key (e.g., user.name, core.editor)
-    return {
-        section: parts[0],
-        subsection: null,
-        variableKey: parts.slice(1).join('.')
-    };
-}
-
-/**
- * Handle --list: display all config values
- */
-async function handleList(level: 'local' | 'global' | 'system') {
-    try {
-        const configInstance = await (TrakConfig as any)._getConfig(level);
-        const configText = configInstance.toString();
-        
-        if (!configText.trim()) {
-            Terminal.println(`No configuration found in ${level} config`);
-            return;
+        if (args.showScope) {
+            output = `${level}\t${output}`;
         }
 
-        // Parse and display in key=value format
-        const lines = configText.split('\n');
-        let currentSection = '';
-        let currentSubsection: string | null = null;
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            
-            // Skip blank lines and comments
-            if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) {
-                continue;
-            }
-
-            // Parse section header
-            const sectionMatch = trimmed.match(/^\[([^\]"]+?)(?:\s+"([^"]+)")?\]$/);
-            if (sectionMatch) {
-                currentSection = sectionMatch[1];
-                currentSubsection = sectionMatch[2] || null;
-                continue;
-            }
-
-            // Parse variable
-            const varMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
-            if (varMatch && currentSection) {
-                const key = varMatch[1].trim();
-                const value = varMatch[2].trim();
-                
-                const fullKey = currentSubsection 
-                    ? `${currentSection}.${currentSubsection}.${key}`
-                    : `${currentSection}.${key}`;
-                
-                Terminal.println(`${fullKey}=${value}`);
-            }
+        if (args.showOrigin) {
+            const configPath = getConfigPath(level);
+            output = `${configPath}\t${output}`;
         }
-    } catch (error) {
-        Terminal.println(`Error reading ${level} config: ${error instanceof Error ? error.message : String(error)}`);
+
+        Terminal.println(output);
+    }
+}
+
+async function getConfigValue(level: ConfigFileLevel, key: string) {
+    const { section, subsection, name } = parseKey(key);
+    const cfg = await getConfig(level);
+    const value = cfg.get(section, name, subsection);
+
+    if (value === null) {
+        Terminal.println(`error: key '${key}' not found`);
+        return;
+    }
+
+    Terminal.println(value);
+}
+
+async function getAllConfig(level: ConfigFileLevel, key: string) {
+    const { section, subsection, name } = parseKey(key);
+    const cfg = await getConfig(level);
+    const values = cfg.getAll(section, name, subsection);
+
+    if (values.length === 0) {
+        Terminal.println(`error: key '${key}' not found`);
+        return;
+    }
+
+    for (const value of values) {
+        Terminal.println(value);
+    }
+}
+
+async function setConfigValue(level: ConfigFileLevel, key: string, value: string) {
+    const { section, subsection, name } = parseKey(key);
+    const cfg = await getConfig(level);
+    cfg.set(section, name, value, subsection);
+    await setConfig(level, cfg.toString());
+    Terminal.println(`Set '${key}' to '${value}'`);
+}
+
+async function addConfig(level: ConfigFileLevel, key: string, value: string) {
+    const { section, subsection, name } = parseKey(key);
+    const cfg = await getConfig(level);
+    cfg.add(section, name, value, subsection);
+    await setConfig(level, cfg.toString());
+    Terminal.println(`Added '${key}' = '${value}'`);
+}
+
+async function unsetConfig(level: ConfigFileLevel, key: string, unsetAll: boolean) {
+    const { section, subsection, name } = parseKey(key);
+    const cfg = await getConfig(level);
+    
+    if (unsetAll) {
+        cfg.unset(section, name, subsection);
+        await setConfig(level, cfg.toString());
+        Terminal.println(`Unset all values for '${key}'`);
+    } else {
+        cfg.unset(section, name, subsection);
+        await setConfig(level, cfg.toString());
+        Terminal.println(`Unset '${key}'`);
+    }
+}
+
+async function removeSection(level: ConfigFileLevel, sectionName: string) {
+    const parts = sectionName.split('.');
+    const section = parts[0];
+    const subsection = parts.length > 1 ? parts.slice(1).join('.') : null;
+
+    const cfg = await getConfig(level);
+    const sectionObj = cfg.getSection(section, subsection);
+
+    if (!sectionObj) {
+        Terminal.println(`error: section '${sectionName}' not found`);
+        return;
+    }
+
+    // Remove the section from the map
+    const key = subsection ? `${section.toLowerCase()}.${subsection}` : section.toLowerCase();
+    cfg.sections.delete(key);
+
+    await setConfig(level, cfg.toString());
+    Terminal.println(`Removed section '${sectionName}'`);
+}
+
+
+
+function getConfigPath(level: ConfigFileLevel): string {
+    switch (level) {
+        case 'local':
+            return ".trak/config";
+        case 'global':
+            return "~/.trakconfig";
+        case 'system':
+            return "/etc/trakconfig";
+        default:
+            return "unknown";
     }
 }
 
 /**
- * Handle --edit: open config file in editor
+ * 
+ * @param key 
+ * @returns 
  */
-async function handleEdit(level: 'local' | 'global' | 'system') {
-  Terminal.println(`Opening ${level} config file in editor...`);
-  // This would typically spawn an editor process
-  // For now, just show the path
-  const path = await (TrakConfig as any)._getConfigFilePath(level);
-  Terminal.println(`Config file: ${path}`);
-  Terminal.println("(Editor functionality not implemented in this example)");
-}
-
-/**
- * Find config value across all levels (system -> global -> local)
- * Returns the most specific value found
- */
-export async function findConfig(key: string): Promise<string | null> {
-    const { section, subsection, variableKey } = parseKey(key);
+export function parseKey(key: string): { section: string; subsection: string | null; name: string } {
+    const keys = key.split('.');
     
-    // Check in order of precedence: local -> global -> system
-    for (const level of ['local', 'global', 'system'] as const) {
-        try {
-            const value = await TrakConfig.get(level, section, variableKey, subsection);
-            if (value !== null) {
-                return value;
-            }
-        } catch {
-            // Config file might not exist at this level
-            continue;
-        }
+    if (keys.length < 2) {
+        throw new Error(`invalid key format: '${key}' (expected format: section.key or section.subsection.key)`);
     }
-    
-    return null;
-}
 
-/**
- * Get all values for a key across all config levels
- */
-export async function findAllConfig(key: string): Promise<string[]> {
-    const { section, subsection, variableKey } = parseKey(key);
-    return await TrakConfig.findAll(section, variableKey, subsection);
+    const section = keys[0];
+    const subsection = keys.length > 2 ? keys[1] : null;
+    const name = keys[keys.length - 1];
+
+    return { section, subsection, name };
 }

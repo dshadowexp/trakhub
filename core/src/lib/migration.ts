@@ -117,7 +117,7 @@ async function deleteFromWorkspace(repo: TrakRepository, path: string) {
         // Remove file and all empty parent directories
         await FileSystem.removeFile(workingPath, repo.workTree);
         // Update Index
-        TrakIndex.remove(path);
+        TrakIndex.removeEntry(path);
     } catch (error) {
         throw new Error(`Error deleting from workspace: ${error}`);
     }
@@ -161,7 +161,7 @@ async function updateFile(repo: TrakRepository, path: string, oid: string, mode:
         await FileSystem.writeFile(join(repo.workTree, path), blob!.content);
         //FileSystem.setMode(path, mode);
         // Update index
-        TrakIndex.add(path, oid);
+        TrakIndex.addEntry(path, oid);
     } catch (error) {
         throw new Error(`Error updating file: ${error}`);
     }

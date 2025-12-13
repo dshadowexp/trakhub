@@ -20,14 +20,23 @@ export async function status(isPorcelain: boolean = false) {
  
     // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
     const workingDirAgainstIndex = await compareWorkingDirectoryAgainstIndex(repo);
+
+    // GET CONFLICTS
+    const conflicts: Record<string, number[]> = TrakIndex.entries.reduce((accum, current) => {
+        if (current.stage === 0) return accum;
+        if (!accum[current.path])
+            accum[current.path] = [];
+        accum[current.path].push(current.stage);
+        return accum;
+    }, {} as Record<string, number[]>);
     
     // 6. DISPLAY RESULTS
     if (isPorcelain) {
-        printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex);
+        printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex, conflicts);
     } else {
         const currentBranch = await TrakRefs.getCurrentBranch(repo);
         Terminal.println(`On branch ${ currentBranch }`);
-        printLongFormat(indexAgainstHead, workingDirAgainstIndex);
+        printLongFormat(indexAgainstHead, workingDirAgainstIndex, conflicts);
     }
 }
 
@@ -89,13 +98,14 @@ async function getStatus(filesA: string[], filesB: string[], getFileAOid: (path:
  * @param indexAgainstHead 
  * @param workingDirAgainstIndex 
  */
-function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]]) {
+function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]], conflicts: Record<string, number[]>) {
     const [stagedNew, stagedModified, stagedDeleted] = indexAgainstHead;
     const [untracked, unstagedModified, unstagedDeleted] = workingDirAgainstIndex;
 
     printFilesList(stagedNew, " N");
     printFilesList(stagedModified, " M");
     printFilesList(stagedDeleted, " D");
+    printConflict(conflicts, " ", true);
     printFilesList(untracked, "??");
     printFilesList(unstagedModified, " M");
     printFilesList(unstagedDeleted, " D");
@@ -106,10 +116,9 @@ function printPorcelainFormat(indexAgainstHead: [string[], string[], string[]], 
  * @param indexAgainstHead 
  * @param workingDirAgainstIndex 
  */
-function printLongFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]]) {
+function printLongFormat(indexAgainstHead: [string[], string[], string[]], workingDirAgainstIndex: [string[], string[], string[]], conflicts: Record<string, number[]>) {
     const [stagedNew, stagedModified, stagedDeleted] = indexAgainstHead;
     const [untracked, unstagedModified, unstagedDeleted] = workingDirAgainstIndex;
-    const conflicts: string[] = [];
 
     // Changes to be committed (staged)
     if (stagedNew.length > 0 || stagedModified.length > 0 || stagedDeleted.length > 0) {
@@ -122,9 +131,9 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
     }
 
     // Unmerged paths
-    if (conflicts.length > 0) {
+    if (Object.keys(conflicts).length > 0) {
         Terminal.println("Unmerged paths:");
-        printFilesList(conflicts, "\t");
+        printConflict(conflicts, "\t");
         Terminal.println("");
     }
 
@@ -160,5 +169,23 @@ function printLongFormat(indexAgainstHead: [string[], string[], string[]], worki
 function printFilesList(filesList: string[], prefix: string) {
     for (const filePath of filesList.sort()) {
         Terminal.println(`${ prefix }  ${ filePath }`);
+    }
+}
+
+const STATUS_MAP: Record<string, { long: string; short: string }> = {
+    "1,2,3": { long: "both modified:", short: "UU" },
+    "1,2": { long: "deleted by them:", short: "UD" },
+    "1,3": { long: "deleted by us:", short: "DU" },
+    "2,3": { long: "both added:", short: "AA" },
+    "2": { long: "added by us:", short: "AU" },
+    "3": { long: "added by them:", short: "UA" }
+};
+
+function printConflict(conflicts: Record<string, number[]>, prefix: string, useShort = false) {
+    for (const [path, stages] of Object.entries(conflicts)) {
+        const key = stages.sort((a, b) => a - b).join(',');
+        const status = STATUS_MAP[key];
+        const message = status ? (useShort ? status.short : status.long) : "??";
+        Terminal.println(`${ prefix }${ message } ${ path }`);
     }
 }

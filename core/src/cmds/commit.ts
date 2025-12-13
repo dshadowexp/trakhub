@@ -4,6 +4,8 @@ import { TrakIndex } from "../db/t-index";
 import { Terminal } from "../lib/standard";
 import { writeTree } from "./write-tree";
 import { commitTree } from "./commit-tree";
+import { PendingCommit } from "../db/pending-commit";
+import { resumeMerge } from "./merge";
 
 export async function commit(message: string) {
     const repo = await TrakRepository.repoFind();
@@ -11,9 +13,19 @@ export async function commit(message: string) {
         return;
 
     // Get parent commit
-    const parentCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const headCommit = await TrakRefs.getCurrentHeadCommit(repo);
     // Create commit object
-    const parentHashes = !parentCommit ? [] : [ parentCommit ];
+    const parentHashes = !headCommit ? [] : [ headCommit ];
+
+    // Read the index (staging area)
+    await TrakIndex.load(repo);
+
+    // Check for merge in progress
+    // handle_in_progress_merge if pending_commit.in_progress?
+    if (await PendingCommit.inProgress(repo)) {
+        await resumeMerge(repo, headCommit!);
+        return;
+    }
 
     // Write Commit to objects
     const commitHash = await writeCommit(repo, parentHashes, message);
@@ -34,8 +46,6 @@ export async function commit(message: string) {
  * @returns 
  */
 export async function writeCommit(repo: TrakRepository, parents: string[], message: string): Promise<string | null> {
-    // Read the index (staging area)
-    await TrakIndex.load(repo);
     if (TrakIndex.entries.length === 0) {
         Terminal.println('Nothing to commit, working tree clean - first');
         return null;

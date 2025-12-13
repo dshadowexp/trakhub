@@ -28,7 +28,7 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'ls-tree') {
             await lsTree(args[1]);
         } else if (args[0] === 'ls-files') {
-            await lsFiles();
+            await lsFiles({stage: true});
         } else if (args[0] === 'add') {
             await add([args[1]]);
         } else if (args[0] === 'rm') {
@@ -68,10 +68,15 @@ export async function parse(args: string[]) {
             await merge(name);
         } else if (args[0] === 'config') {
             await config({ 
-                key: "user.name", 
-                value: "John Doe", 
-                options: { global: true } 
+                key: "remote.upstream.fetch", 
+                //unset: true
+                value: "+refs/heads/*:refs/remotes/origin/*", 
+                //level: 'local'
+                // list: true,
+                //showOrigin: true
             });
+        } else if (args[0] === 'remote') {
+
         } else if (args[0] === 'pull') {
 
         } else if (args[0] === 'push') {

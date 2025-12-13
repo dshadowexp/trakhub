@@ -1,5 +1,4 @@
-import { join } from "path";
-import { TrakBlob, TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
+import { TrakBlob, TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs"
 import { TrakIndex } from "../db/t-index";
 import { migrate } from "../lib/migration";
@@ -7,31 +6,23 @@ import { resolveStartPoint } from "../lib/revision";
 import { FileSystem, Terminal } from "../lib/standard";
 import { DiffAction, treeDiff, type DiffEntry } from "../lib/tree-diff";
 import { TrakRepository } from "../repository";
-import { UnixFileModeEnum } from "../types";
+import { type EntryInfo } from "../types";
 import { intersection, shortHash, union } from "../util";
-import { extractFilesFromTree, hasUncommittedChanges } from "./-shared";
+import { hasUncommittedChanges } from "./-shared";
 import { writeCommit } from "./commit";
-import { mkdir } from "fs/promises";
-import { commitTree } from "./commit-tree";
+import { PendingCommit } from "../db/pending-commit";
 
-type MergePathResult = {
-    conflict: boolean;
-    conflictType?: "content" | "delete/modify" | "both-added" | "unknown";
-    deleted?: boolean;
-    oid?: string;
-    mode?: string;
-    conflictOid?: string;
-};
-  
-type ConflictInfo = {
-    path: string;
-    type: string;
-    ours: DiffEntry;
-    theirs: DiffEntry;
+interface ConflictInfo {
+    path: string
+    base?: EntryInfo;
+    left?: EntryInfo;
+    right?: EntryInfo;
 };
 
 type MergeArgs = {
     noFF?: boolean
+    continue?: boolean
+    abort?: boolean
 }
 
 export async function merge(sourceBranch: string, options: MergeArgs = {}) {
@@ -54,6 +45,21 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
     if (!mergeCommit)
         throw new Error(`Branch ${sourceBranch} not found`);
 
+    // Load the index for updates
+    await TrakIndex.load(repo);
+
+    // handle_continue if @options[:mode] == :continue
+    if (options.continue) {
+        await resumeMerge(repo, headCommit);
+        return;
+    }
+
+    // handle_in_progress_merge if pending_commit.in_progress?
+    if (await PendingCommit.inProgress(repo)) {
+        _mergeInProgress();
+        return;
+    }
+
     // # 3. CHECK IF ALREADY UP-TO-DATE
     if (headCommit === mergeCommit) {
         Terminal.println("Already up to date.");
@@ -69,13 +75,10 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
     if (baseCommit === mergeCommit) {
         // Source is already in target's history
         Terminal.println("Already up to date.\n");
-        return;
+        return; // process.exit(0)
     }
 
     // # 1. VALIDATE STATE
-    // Load the index for updates
-    await TrakIndex.load(repo);
-
     // Check if changes are uncommitted
     if (await hasUncommittedChanges(repo))
         throw new Error(`Your local changes to the following files would be overwritten by checkout`);
@@ -96,6 +99,29 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
 
     // # 7. PERFORM THREE-WAY MERGE
     merge = await _threeWayMerge(repo, baseCommit, headCommit, mergeCommit);
+}
+
+export async function resumeMerge(repo: TrakRepository, headCommit: string) {
+    // handle_conflicted_index
+    if (TrakIndex.hasConflicts()) {
+        const message = "Committing is not possible because you have unmerged files";
+        Terminal.printerr(`error: ${message}.`);
+        // Terminal.printerr(CONFLICT_MESSAGE);
+        process.exit(128);
+    }
+
+    // Resume merge
+    const parentHashes = [headCommit, await PendingCommit.oid(repo)];
+    const message = await PendingCommit.message(repo);
+    const commitHash = await writeCommit(repo, parentHashes, message);
+    await PendingCommit.clear(repo);
+}
+
+function _mergeInProgress() {
+    const message = "Merging is not possible because you have unmerged files";
+    Terminal.printerr(`error: ${ message }.\n`);
+    //Terminal.error(CONFLICT_MESSAGE);
+    process.exit(128);
 }
 
 /**
@@ -217,330 +243,163 @@ async function _fastForwardMerge(repo: TrakRepository, headCommit: string, merge
     await TrakRefs.setCurrentHeadCommit(repo, mergeCommit);
     
     // # 3. Show stats
-    // show_merge_stats(current_tree, source_tree)
+    // show_merge_stats(current_tree, source_tree) //
 }
 
-/**
- * Perform three-way merge between base, head, and merge commits
- */
-export async function _threeWayMerge(
-    repo: TrakRepository,
+export async function _threeWayMerge(repo: TrakRepository,
     baseCommit: string,
     headCommit: string,
     mergeCommit: string
-): Promise<{ success: boolean; conflicts: ConflictInfo[] }> {
+) {
     Terminal.println("Performing three-way merge...");
-  
+
+    // Pending commit here
+    await PendingCommit.start(repo, mergeCommit, ''); //stdin.read
+
+    // RESOLVE MERGE
     // Get changes from base to each branch
     const headChanges = await treeDiff(repo, baseCommit, headCommit);
     const mergeChanges = await treeDiff(repo, baseCommit, mergeCommit);
-  
+
     // Build path maps for O(1) lookup
     const headMap = buildPathMap(headChanges);
     const mergeMap = buildPathMap(mergeChanges);
-  
+
     // Get all unique paths that changed
     const allPaths = union(Object.keys(headMap), Object.keys(mergeMap));
-  
-    // Load base tree entries
-    const baseTreeEntries = await extractFilesFromTree(repo, baseCommit);
-  
+
     // Track conflicts and merged entries
+    const cleanDiff = new Map<string, DiffEntry>();
     const conflicts: ConflictInfo[] = [];
-    const mergedEntries = new Map<string, { oid: string; mode: string }>();
-  
-    // Start with all base entries
-    for (const [path, entry] of Object.entries(baseTreeEntries)) {
-        mergedEntries.set(path, { oid: entry.oid, mode: entry.mode });
-    }
-  
-    // Process each changed path
-    for (const path of allPaths) {
-        const headDiff = headMap[path];
-        const mergeDiff = mergeMap[path];
-        const baseEntry = baseTreeEntries.find(entry => entry.name === path)!;
-  
-        const result = await mergePath(
-            repo,
-            path,
-            baseEntry,
-            headDiff || null,
-            mergeDiff || null
-        );
-  
-        if (result.conflict) {
-            // Record conflict
-            conflicts.push({
-                path,
-                type: result.conflictType || "unknown",
-                ours: headDiff!,
-                theirs: mergeDiff!,
+    const untracked = new Map<string, EntryInfo>();
+
+    for (const path of Object.keys(mergeMap)) {
+        const headDiff = headMap[path]; //left diff
+        const mergeDiff = mergeMap[path]; // right diff
+        const baseEntry: EntryInfo = { oid: headDiff.oldOid, mode: headDiff.oldOid } // base
+
+        if (!headDiff) {
+            cleanDiff.set(path, {
+                ...mergeDiff,
+                action: DiffAction.ADD,
             });
-    
-            // Add conflict entries to index (stages 1, 2, 3)
-            const conflictSet: { mode: string; hash: string }[] = [];
-    
-            if (baseEntry) {
-                conflictSet.push({ mode: baseEntry.mode, hash: baseEntry.oid });
-            }
-    
-            if (headDiff && headDiff.newOid && headDiff.newMode) {
-                conflictSet.push({ mode: headDiff.newMode, hash: headDiff.newOid });
-            }
-    
-            if (mergeDiff && mergeDiff.newOid && mergeDiff.newMode) {
-                conflictSet.push({
-                    mode: mergeDiff.newMode,
-                    hash: mergeDiff.newOid,
-                });
-            }
-    
-            if (conflictSet.length > 0) {
-                TrakIndex.addConflictSet(path, conflictSet);
-            }
-    
-            // Write conflicted file to working directory
-            if (result.conflictOid) {
-                mergedEntries.set(path, {
-                    oid: result.conflictOid,
-                    mode: result.mode || UnixFileModeEnum.REGULAR_FILE,
-                });
-            }
-        } else {
-            if (result.deleted) {
-                mergedEntries.delete(path);
-                TrakIndex.remove(path);
-            } else if (result.oid && result.mode) {
-                mergedEntries.set(path, {
-                    oid: result.oid,
-                    mode: result.mode,
-                });
-                TrakIndex.add(path, result.oid);
-            }
-        }
+        } 
+        
+        if (headDiff.newOid === mergeDiff.newOid) continue;
+
+        const [isModeClean, resultMode] = mergeModes(baseEntry.mode, headDiff.newMode, mergeDiff.newMode);
+        const [isContentClean, resultOid] = await mergeBlobs(repo, baseEntry.oid, headDiff.newOid, mergeDiff.newOid);
+
+        cleanDiff.set(path, {
+            path,
+            action: DiffAction.MODIFY,
+            oldMode: headDiff.newMode,
+            oldOid: headDiff.newOid,
+            newMode: resultMode,
+            newOid: resultOid
+        });
+
+
+        if (isModeClean && isContentClean) return;
+
+        conflicts.push({
+            path,
+            base: baseEntry,
+            left: { oid: headDiff.newOid, mode: headDiff.newMode },
+            right: { oid: mergeDiff.newOid, mode: mergeDiff.newMode }
+        })
     }
-  
-    // Apply merged entries to working directory
-    await applyMergedEntries(repo, mergedEntries);
-  
-    if (conflicts.length > 0) {
-        // Save MERGE_HEAD for conflict resolution
-        const mergeHeadPath = await TrakRepository.repoFile(
-            repo,
-            true,
-            "MERGE_HEAD"
-        );
-        if (mergeHeadPath) {
-            await FileSystem.writeFile(mergeHeadPath, Buffer.from(mergeCommit));
-        }
+
     
-        // Save index with conflict markers
-        await TrakIndex.save(repo);
-    
-        Terminal.println(
-            `Automatic merge failed; fix conflicts and then commit the result.`
-        );
-        Terminal.println(`\nConflicts in:`);
-        conflicts.forEach((c) => Terminal.println(`  ${c.path}`));
-    
-        return { success: false, conflicts };
+    // apply migration with cleanDiff
+    await migrate(repo, Object.values(cleanDiff));
+
+    // Write all updates to index
+    await TrakIndex.save(repo);
+
+    // COMMIT MERGE
+    const parentHashes = [headCommit, mergeCommit];
+    const message = await PendingCommit.message(repo);
+    const commitHash = await writeCommit(repo, parentHashes, message);
+
+    await PendingCommit.clear(repo);
+
+    // Add conflicts to index
+    conflicts.forEach((conflict) => {
+        const { path, base, left, right } = conflict;
+        TrakIndex.addConflictSet(path, [base, left, right]);
+    });
+
+    // Write untracked files
+    for (const [path, entry] of untracked) {
+        const blob = await TrakObjectsBase.readObject(repo, entry.oid!);
+        await FileSystem.writeFile(path, blob!.content);
+    }
+
+    if (TrakIndex.hasConflicts()) {
+        Terminal.println("Automatic merge failed; fix conflicts and then commit the result.");
+        return; //exit 1
+    }
+}
+
+function logConflict(conflict: ConflictInfo, rename: string | null = null) {
+    const { path, base, left, right } = conflict;
+
+    if (left && right) {
+        // log_left_right_conflict(path)
+    } else if (base && (left || right)) {
+        // log_modify_delete_conflict(path, rename)
     } else {
-        // Clean merge - build merged tree
-        // const mergedTreeHash = await buildTreeFromEntries(repo, mergedEntries);
-    
-        // Save index
-        await TrakIndex.save(repo);
-    
-        // Create merge commit with two parents
-        const mergeMessage = `Merge commit '${mergeCommit.substring(0, 7)}'`;
-        const newCommit = await commitTree({
-            treeHash: '', //mergedTreeHash,
-            parents: [headCommit, mergeCommit],
-            message: mergeMessage
-        },  repo);
-    
-        // Update HEAD
-        await TrakRefs.setCurrentHeadCommit(repo, newCommit!);
-    
-        Terminal.println(`Merge made by the 'recursive' strategy.`);
-        return { success: true, conflicts: [] };
+        // log_file_directory_conflict(path, rename)
     }
-}
-  
-  /**
-   * Merge a single path that changed in both branches
-   */
-async function mergePath(
-    repo: TrakRepository,
-    path: string,
-    baseEntry: { oid: string; mode: string } | undefined,
-    headDiff: DiffEntry | null,
-    mergeDiff: DiffEntry | null
-): Promise<MergePathResult> {
-    // Case 1: Only HEAD changed
-    if (headDiff && !mergeDiff) {
-        return applyChange(headDiff);
-    }
-  
-    // Case 2: Only merge branch changed
-    if (!headDiff && mergeDiff) {
-        return applyChange(mergeDiff);
-    }
-  
-    // Case 3: Both branches changed
-    if (headDiff && mergeDiff) {
-        return await mergeBothChanged(repo, path, baseEntry, headDiff, mergeDiff);
-    }
-  
-    // Case 4: No changes (shouldn't happen)
-    if (baseEntry) {
-        return { conflict: false, oid: baseEntry.oid, mode: baseEntry.mode };
-    }
-  
-    return { conflict: false, deleted: true };
-  }
-  
-  /**
-   * Apply a single change from one branch
-   */
-function applyChange(diff: DiffEntry): MergePathResult {
-    if (diff.action === DiffAction.DELETE) {
-        return { conflict: false, deleted: true };
-    } else {
-        return {
-            conflict: false,
-            oid: diff.newOid,
-            mode: diff.newMode,
-        };
-    }
-}
-  
-  /**
-   * Merge when both branches changed the same path
-   */
-async function mergeBothChanged(
-    repo: TrakRepository,
-    path: string,
-    baseEntry: { oid: string; mode: string } | undefined,
-    headDiff: DiffEntry,
-    mergeDiff: DiffEntry
-): Promise<MergePathResult> {
-    // Subcase 1: Both made identical changes
-    if (
-        headDiff.action === mergeDiff.action &&
-        headDiff.newOid === mergeDiff.newOid &&
-        headDiff.newMode === mergeDiff.newMode
-    ) {
-        return applyChange(headDiff);
-    }
-  
-    // Subcase 2: Both deleted
-    if (
-        headDiff.action === DiffAction.DELETE &&
-        mergeDiff.action === DiffAction.DELETE
-    ) {
-        return { conflict: false, deleted: true };
-    }
-  
-    // Subcase 3: Delete/Modify conflict
-    if (
-        (headDiff.action === DiffAction.DELETE &&
-            mergeDiff.action === DiffAction.MODIFY) ||
-        (headDiff.action === DiffAction.MODIFY &&
-            mergeDiff.action === DiffAction.DELETE)
-    ) {
-        const keepDiff =
-            mergeDiff.action === DiffAction.MODIFY ? mergeDiff : headDiff;
-        return {
-            conflict: true,
-            conflictType: "delete/modify",
-            oid: keepDiff.newOid,
-            mode: keepDiff.newMode,
-        };
-    }
-  
-    // Subcase 4: Both modified - try content merge
-    if (
-        headDiff.action === DiffAction.MODIFY &&
-        mergeDiff.action === DiffAction.MODIFY
-    ) {
-        return await mergeContent(repo, path, baseEntry, headDiff, mergeDiff);
-    }
-  
-    // Subcase 5: Both added differently
-    if (
-        headDiff.action === DiffAction.ADD &&
-        mergeDiff.action === DiffAction.ADD
-    ) {
-        return await mergeContent(repo, path, undefined, headDiff, mergeDiff);
-    }
-  
-    // Unknown conflict
-    return {
-        conflict: true,
-        conflictType: "unknown",
-        oid: headDiff.newOid,
-        mode: headDiff.newMode,
-    };
-}
-  
-  /**
-   * Merge file contents using three-way merge
-   */
-async function mergeContent(
-    repo: TrakRepository,
-    path: string,
-    baseEntry: { oid: string; mode: string } | undefined,
-    headDiff: DiffEntry,
-    mergeDiff: DiffEntry
-): Promise<MergePathResult> {
-    const baseOid = baseEntry?.oid || null;
-    const headOid = headDiff.newOid!;
-    const mergeOid = mergeDiff.newOid!;
-  
-    // Try simple merge3 first
-    const simpleResult = merge3(baseOid, headOid, mergeOid);
-    if (simpleResult !== undefined) {
-        const [clean, resultOid] = simpleResult;
-        if (!resultOid) {
-            return { conflict: false, deleted: true };
-        }
-        return {
-            conflict: !clean,
-            oid: resultOid,
-            mode: headDiff.newMode || mergeDiff.newMode,
-        };
-    }
-  
-    // Need line-by-line merge - create conflict markers
-    const headBlob = (await TrakObjectsBase.readObject(
-      repo,
-      headOid
-    )) as TrakBlob;
-    const mergeBlob = (await TrakObjectsBase.readObject(
-      repo,
-      mergeOid
-    )) as TrakBlob;
-  
-    const conflictContent = buildConflictMarkers(
-      headBlob.content.toString(),
-      mergeBlob.content.toString()
-    );
-  
-    const conflictBlob = new TrakBlob(Buffer.from(conflictContent));
-    await TrakObjectsBase.writeObject(conflictBlob, repo);
-  
-    return {
-        conflict: true,
-        conflictType: "content",
-        conflictOid: conflictBlob.hash(),
-        oid: conflictBlob.hash(),
-        mode: headDiff.newMode || mergeDiff.newMode,
-    };
 }
 
 /**
- * Simple three-way merge for OIDs
+ * 
+def log_left_right_conflict(path)
+type = @conflicts[path][0] ? "content" : "add/add"
+log "CONFLICT (#{ type }): Merge conflict in #{ path }"
+end
+
+def log_modify_delete_conflict(path, rename)
+deleted, modified = log_branch_names(path)
+rename = rename ? " at #{ rename }" : ""
+log "CONFLICT (modify/delete): #{ path } " +
+"deleted in #{ deleted } and modified in #{ modified }. " +
+"Version #{ modified } of #{ path } left in tree#{ rename }."
+end
+
+def log_branch_names(path)
+a, b = @inputs.left_name, @inputs.right_name
+@conflicts[path][1] ? [b, a] : [a, b]
+end
+
+def log_file_directory_conflict(path, rename)
+type = @conflicts[path][1] ? "file/directory" : "directory/file"
+branch, _
+= log_branch_names(path)
+log "CONFLICT (#{ type }): There is a directory " +
+"with name #{ path } in #{ branch }. " +
+"Adding #{ path } as #{ rename }"
+end
+ */
+
+function mergeModes(baseMode: string | undefined, headMode: string | undefined, mergeMode: string | undefined): [ boolean, string | undefined ] {
+    return merge3(baseMode, headMode, mergeMode) || [false, headMode];
+}
+
+async function mergeBlobs(repo: TrakRepository, baseOid: string | undefined, headOid: string | undefined, mergeOid: string | undefined): Promise<[ boolean, string | undefined ]> {
+    const result = merge3(baseOid, headOid, mergeOid);
+    if (result !== undefined)
+        return result;
+
+    const mergedBlob = new TrakBlob(Buffer.from(await mergeData(repo, headOid!, mergeOid!)));
+    await TrakObjectsBase.writeObject(mergedBlob, repo);
+    return [false, mergedBlob.hash()];
+}
+
+/**
+ * Simple three-way merge for OIDs and modes
  * Returns [clean, resultOid] or undefined if detailed merge needed
  * 
  * @param base 
@@ -548,7 +407,7 @@ async function mergeContent(
  * @param right 
  * @returns 
  */
-function merge3(base: string | null, left: string | undefined, right: string | undefined): [ boolean, string | undefined ] | undefined {
+function merge3(base: string | undefined, left: string | undefined, right: string | undefined): [ boolean, string | undefined ] | undefined {
     // If left is missing → take right (unmerged)
     if (!left) return [false, right];
 
@@ -564,31 +423,18 @@ function merge3(base: string | null, left: string | undefined, right: string | u
     }
 }
 
+async function mergeData(repo: TrakRepository, headOid: string, mergeOid: string) {
+    const headBlob = await TrakObjectsBase.readObject(repo, headOid);
+    const mergeBlob = await TrakObjectsBase.readObject(repo, mergeOid);
 
-  
-/**
- * Build conflict markers for file content
- */
-function buildConflictMarkers(headContent: string, mergeContent: string): string {
     return [
-      "<<<<<<< HEAD",
-      headContent,
-      "=======",
-      mergeContent,
-      ">>>>>>> MERGE_HEAD",
-    ].join("\n");
+        "<<<<<<< #{ @inputs.left_name }\n",
+        headBlob?.content.toString(),
+        "=======\n",
+        mergeBlob?.content.toString(),
+        ">>>>>>> #{ @inputs.right_name }\n"
+    ].join("");
 }
-  
-  /**
-   * Build path map from diff entries
-   */
-// function buildPathMap(changes: DiffEntry[]): Map<string, DiffEntry> {
-//     const map = new Map<string, DiffEntry>();
-//     for (const change of changes) {
-//         map.set(change.path, change);
-//     }
-//     return map;
-// }
 
 /**
  * Build path map from diff entries
@@ -601,147 +447,12 @@ function buildPathMap(changes: DiffEntry[]): Record<string, DiffEntry> {
         return { ...map, [change.path]: change};
     }, {});
 }
-  
-  /**
-   * Apply merged entries to working directory
-   */
-async function applyMergedEntries(
-    repo: TrakRepository,
-    mergedEntries: Map<string, { oid: string; mode: string }>
-): Promise<void> {
-    for (const [path, entry] of mergedEntries) {
-      const blob = (await TrakObjectsBase.readObject(repo, entry.oid)) as TrakBlob;
-      const fullPath = join(repo.workTree, path);
-  
-      // Ensure parent directory exists
-      const parentDir = join(fullPath, "..");
-      if (!FileSystem.exists(parentDir)) {
-            await mkdir(parentDir, { recursive: true });
-      }
-  
-      await FileSystem.writeFile(fullPath, blob.content);
-    }
-}
-  
 
-// /**
-//  * 
-//  * @param targetCommit 
-//  * @param sourceCommit 
-//  * @param mergeBase 
-//  * @param sourceBranch 
-//  */
-// async function _threeWayMerge(repo: TrakRepository, baseCommit: string, headCommit: string, mergeCommit: string) {
-//     const mergeChanges = await treeDiff(repo, baseCommit, mergeCommit);
-//     const headChanges = await treeDiff(repo, baseCommit, headCommit);
-//     const cleanDiff: DiffEntry[] = [];
-//     const conflicts: Record<string, any> = {};
 
-//     // Build maps for O(1) lookup: path -> DiffEntry
-//     const mergeChangesMap = constructChangesFilePathMap(mergeChanges);
-//     const headChangesMap = constructChangesFilePathMap(headChanges);
-//     const baseTreeEntries = await extractFilesFromTree(repo, baseCommit);
 
-//     // Get all unique paths that changed
-//     const allChangedPaths = union(Object.keys(mergeChangesMap), Object.keys(headChangesMap));
 
-//     // Process each changed path
-//     for (const path of allChangedPaths) {
-//         const headChange = headChangesMap[path];
-//         const mergeChange = mergeChangesMap[path];
-//         const baseEntry = baseTreeEntries.find(entry => entry.name === path)!;
 
-//         if (!headChange) {
-//             cleanDiff.push({ path, newMode: baseEntry.mode, newOid: baseEntry.oid });
-//             continue;
-//         }
 
-//         if (headChange === mergeChange) {
-//             continue;
-//         }
-
-//         const [isModeClean, resultMode] = mergeModes(baseEntry?.mode, headChange.newMode, mergeChange.newMode);
-//         const [isContentClean, resultOid] = await mergeBlobs(repo, baseEntry.oid, headChange.newOid, mergeChange.newOid);
-
-//         headChange.newMode = resultMode;
-//         headChange.newOid = resultOid;
-//         cleanDiff.push(headChange);
-
-//         if (!(isModeClean && isContentClean)) {
-//             conflicts[path] = [baseEntry, headChange, mergeChange];
-//         } else {
-//             cleanDiff.push({ path, newMode: resultMode, newOid: resultOid })
-//         }
-//     }
-
-//     // Resolve merge
-//     // Apply changes with migration
-//     await migrate(repo, cleanDiff);
-//     // Add conflicts to index
-//     // write untracked files
-//     if (TrakIndex.hasConflicts())
-//         throw new Error("fatal: Merge conflict")
-
-//     // Write index to file
-//     await TrakIndex.save(repo);
-//     if (conflicts.length > 0)
-//         return;
-
-//     // Commit Merge
-//     const parents = [headCommit, mergeCommit];
-//     const message = "Read from stdin";
-//     await writeCommit(repo, parents, message);
-
-// }
-
-// /**
-//  * 
-//  * @param baseMode 
-//  * @param headMode 
-//  * @param mergeMode 
-//  * @returns 
-//  */
-// function mergeModes(baseMode: string, headMode: string | undefined, mergeMode: string | undefined): [ boolean, string | undefined ] {
-//     return merge3(baseMode, headMode, mergeMode) || [false, headMode];
-// }
-
-// /**
-//  * 
-//  * @param repo 
-//  * @param baseOid 
-//  * @param headOid 
-//  * @param mergeOid 
-//  * @returns 
-//  */
-// async function mergeBlobs(repo: TrakRepository, baseOid: string, headOid: string | undefined, mergeOid: string | undefined): Promise<[ boolean, string | undefined ]> {
-//     const result = merge3(baseOid, headOid, mergeOid);
-//     if (result !== undefined)
-//         return result;
-
-//     const mergedBlob = new TrakBlob(Buffer.from(await mergeData(repo, headOid!, mergeOid!)));
-//     await TrakObjectsBase.writeObject(mergedBlob, repo);
-//     return [false, mergedBlob.hash()];
-// }
-
-// /**
-//  * 
-//  * @param repo 
-//  * @param headOid 
-//  * @param mergeOid 
-//  * @returns 
-//  */
-// async function mergeData(repo: TrakRepository, headOid: string, mergeOid: string) {
-//     const headBlob = await TrakObjectsBase.readObject(repo, headOid);
-//     const mergeBlob = await TrakObjectsBase.readObject(repo, mergeOid);
-
-//     return [
-//         "<<<<<<< #{ @inputs.left_name }\n",
-//         headBlob?.content.toString(),
-//         "=======\n",
-//         mergeBlob?.content.toString(),
-//         ">>>>>>> #{ @inputs.right_name }\n"
-//     ].join("");
-// }
 
 
 

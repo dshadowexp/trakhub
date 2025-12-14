@@ -1,3 +1,5 @@
+export const NULL_BYTE: string = "\0";
+
 export enum PackFileObjectTypeEnum {
   RESERVED_0,
   COMMIT,
@@ -12,12 +14,6 @@ export enum PackFileObjectTypeEnum {
 export type EntryInfo = {
     oid?: string;
     mode?: string;
-}
-
-export enum TrakObjectTypeEnum {
-    COMMIT = "commit",
-    TREE = "tree",
-    BLOB = "blob",
 }
 
 export enum UnixFileModeEnum {

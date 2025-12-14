@@ -15,7 +15,7 @@ import { merge } from "./cmds/merge";
 import { rm } from "./cmds/rm";
 import { status } from "./cmds/status";
 import { writeTree } from "./cmds/write-tree";
-import { TrakObjectTypeEnum } from "./types";
+import { TrakObjectType } from "./types";
 
 export async function parse(args: string[]) {
     try {
@@ -24,7 +24,7 @@ export async function parse(args: string[]) {
         } else if (args[0] === 'cat-file') {
             await catFile(args[1]);
         } else if (args[0] === 'hash-object') {
-            await hashObject(args[2], args[1] as TrakObjectTypeEnum, true);
+            await hashObject(args[2], args[1] as TrakObjectType, true);
         } else if (args[0] === 'ls-tree') {
             await lsTree(args[1]);
         } else if (args[0] === 'ls-files') {

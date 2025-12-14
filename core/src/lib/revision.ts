@@ -2,7 +2,7 @@ import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { FileSystem } from "./standard";
-import { TrakObjectTypeEnum } from "../types";
+import { TrakObjectType } from "../types";
 import { isAbbreviatedSha, isValidSha } from "../util";
 
 /*********************************************************************************************************
@@ -183,6 +183,6 @@ async function isCommitObject(repo: TrakRepository, hash: string): Promise<boole
     if (!object)
         return false;
 
-    return object.type === TrakObjectTypeEnum.COMMIT;
+    return object.type === TrakObjectType.COMMIT;
 }
 

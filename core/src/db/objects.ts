@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { TrakAuthor, TrakObjectTypeEnum, type TrakTreeEntry } from '../types';
+import { TrakAuthor, type TrakTreeEntry } from '../types';
 import { createReadStream, createWriteStream } from "fs";
 import { pipeline } from "stream/promises";
 import { createDeflate, createInflate } from "zlib";
@@ -7,6 +7,21 @@ import { Readable, Writable } from "stream";
 import { TrakRepository } from "../repository";
 import { getTimezone } from '../util';
 import { FileSystem } from '../lib/standard';
+import { NULL_BYTE } from '../types';
+
+// const TrakObjectType = {
+//     COMMIT: "commit",
+//     TREE: "tree",
+//     BLOB: "blob",
+// } as const;
+
+// export type TrakObjectType = typeof TrakObjectType[keyof typeof TrakObjectType];
+
+export enum TrakObjectType {
+    COMMIT = "commit",
+    TREE = "tree",
+    BLOB = "blob",
+}
 
 export class TrakObjectsBase {
     static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
@@ -19,7 +34,7 @@ export class TrakObjectsBase {
 
             // Ensure directory exists
             if (objectFilePath && !FileSystem.exists(objectFilePath)) {
-                const result = Buffer.concat([Buffer.from(`${object.type} ${object.content.byteLength}\0`), object.content]);
+                const result = Buffer.concat([Buffer.from(`${object.type} ${object.content.byteLength}${ NULL_BYTE }`), object.content]);
         
                 await pipeline(
                     Readable.from(result), 
@@ -32,14 +47,11 @@ export class TrakObjectsBase {
         return objectHash;
     }
 
-    static async readObject(repo: TrakRepository, hash: string): Promise<TrakBlob | TrakTree | TrakCommit | null> {
+    static async readObjectHeader(repo: TrakRepository, hash: string): Promise<[string, number, Buffer]> {
         const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
 
         if (!path || !FileSystem.exists(path))
             throw new Error(`Object ${hash} not found`);
-
-        if (!FileSystem.isFile(path))
-            return null;
 
         const chunks: Buffer[] = [];
         const collectStream = new Writable({
@@ -77,16 +89,31 @@ export class TrakObjectsBase {
         
         // Verify content size matches header
         if (content.byteLength !== size) {
-            process.stdout.write(`Size mismatch: expected ${size}, got ${content.byteLength}\n`);
+            throw new Error(`Size mismatch: expected ${size}, got ${content.byteLength}\n`);
         }
 
-        const baseObject = new TrakObject(objectType as TrakObjectTypeEnum, content);
-        switch(objectType as TrakObjectTypeEnum) {
-            case TrakObjectTypeEnum.BLOB:
+        return [objectType, size, content];
+    }
+
+    static async readRaw(repo: TrakRepository, hash: string) {
+        const [objectType, size, content] = await TrakObjectsBase.readObjectHeader(repo, hash);
+        return {
+            type: objectType,
+            size,
+            data: content
+        };
+    }
+
+    static async readObject(repo: TrakRepository, hash: string): Promise<TrakBlob | TrakTree | TrakCommit | null> {
+        const [objectType, size, content] = await TrakObjectsBase.readObjectHeader(repo, hash);
+
+        const baseObject = new TrakObject(objectType as TrakObjectType, content);
+        switch(objectType as TrakObjectType) {
+            case TrakObjectType.BLOB:
                 return TrakBlob.deserialize(baseObject.content);
-            case TrakObjectTypeEnum.TREE:
+            case TrakObjectType.TREE:
                 return TrakTree.deserialize(baseObject.content);
-            case TrakObjectTypeEnum.COMMIT:
+            case TrakObjectType.COMMIT:
                 return TrakCommit.deserialize(baseObject.content);
             default:
                 throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
@@ -104,7 +131,7 @@ export class TrakObject {
     protected _type: string;
     protected _content: Buffer;
 
-    constructor(objType: TrakObjectTypeEnum, data: Buffer = Buffer.from('')) {
+    constructor(objType: TrakObjectType, data: Buffer = Buffer.from('')) {
         this._type = objType;
         this._content = data;
     }
@@ -131,7 +158,7 @@ export class TrakObject {
 
 export class TrakBlob extends TrakObject {
     constructor(data: Buffer) {
-        super(TrakObjectTypeEnum.BLOB, data);
+        super(TrakObjectType.BLOB, data);
     }
 
     serialize(): Buffer {
@@ -145,7 +172,7 @@ export class TrakBlob extends TrakObject {
 
 export class TrakTree extends TrakObject {
     constructor(private _entries: TrakTreeEntry[] = []) {
-        super(TrakObjectTypeEnum.TREE);
+        super(TrakObjectType.TREE);
         this._content = this.serialize();
     }
 
@@ -197,7 +224,7 @@ export class TrakCommit extends TrakObject {
         private _committer: TrakAuthor,
         private _message: string,
     ) {
-        super(TrakObjectTypeEnum.COMMIT);
+        super(TrakObjectType.COMMIT);
         this._content = this.serialize();
     }
 

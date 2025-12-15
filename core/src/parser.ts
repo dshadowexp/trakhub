@@ -1,11 +1,12 @@
-import { add } from "./cmds/add";
-import { branch } from "./cmds/branch";
+import { Add, add } from "./cmds/add";
+import { Branch, branch } from "./cmds/branch";
 import { catFile } from "./cmds/cat-file";
 import { checkout } from "./cmds/checkout";
 import { commit } from "./cmds/commit";
 import { commitTree } from "./cmds/commit-tree";
 import { config } from "./cmds/config";
 import { diff } from "./cmds/diff";
+import { fetch } from "./cmds/fetch";
 import { hashObject } from "./cmds/hash-object";
 import { createRepo } from "./cmds/init";
 import { log } from "./cmds/log";
@@ -15,16 +16,35 @@ import { merge } from "./cmds/merge";
 import { rm } from "./cmds/rm";
 import { status } from "./cmds/status";
 import { writeTree } from "./cmds/write-tree";
-import { TrakObjectType } from "./types";
+import commandLineArgs from 'command-line-args';
+import type { Command } from "./types";
 
 export async function parse(args: string[]) {
+    const mainDefinitions = [
+        { name: 'command', defaultOption: true }
+    ];
+    const mainOptions = commandLineArgs(mainDefinitions, { stopAtFirstUnknown: true })
+    const argv = mainOptions._unknown || []
+
+    console.log('mainOptions\n===========')
+    console.log(mainOptions)
+    let command: Command<any> | undefined;
+    if (mainOptions.command === 'add') {
+        command = new Add(argv);
+    } else if (mainOptions.command === 'branch') {
+        command = new Branch(argv);
+    }  
+
+    if (command) await command.execute();
+
+
     try {
         if (args[0] === 'init') {
             await createRepo('.');
         } else if (args[0] === 'cat-file') {
             await catFile(args[1]);
         } else if (args[0] === 'hash-object') {
-            await hashObject(args[2], args[1] as TrakObjectType, true);
+            await hashObject(args[2], args[1], true);
         } else if (args[0] === 'ls-tree') {
             await lsTree(args[1]);
         } else if (args[0] === 'ls-files') {
@@ -45,7 +65,8 @@ export async function parse(args: string[]) {
             await status();
         }  else if (args[0] === 'branch') {
             const name = args[1];
-  
+            console.log(args);
+
             await branch(name, {
                 list: true,
                 verbose: true, 
@@ -68,14 +89,18 @@ export async function parse(args: string[]) {
             await merge(name);
         } else if (args[0] === 'config') {
             await config({ 
-                key: "remote.upstream.fetch", 
+                key: "remote.origin.url", 
                 //unset: true
-                value: "+refs/heads/*:refs/remotes/origin/*", 
+                // value: "+refs/heads/*:refs/remotes/origin/*", 
                 //level: 'local'
                 // list: true,
                 //showOrigin: true
             });
         } else if (args[0] === 'remote') {
+
+        } else if (args[0] === 'fetch') {
+            await fetch({});
+        } else if (args[0] === 'upload-pack') {
 
         } else if (args[0] === 'pull') {
 

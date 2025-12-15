@@ -10,11 +10,7 @@ import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./
 // ************************************************************************************************/
 // Defintions
 
-export interface Command {
-    name: string;
-    description: string;
-    execute(args: string[]): Promise<void>;
-}
+
 
 // ************************************************************************************************/
 // Helper functions

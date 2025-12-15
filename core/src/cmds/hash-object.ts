@@ -1,11 +1,9 @@
-import type { TrakObjectType } from "../types";
 import { FileSystem, Terminal } from "../lib/standard";
-import { TrakBlob, TrakCommit, TrakObject, TrakObjectsBase, TrakTree } from "../db/objects";
+import { TrakBlob, TrakCommit, TrakObject, TrakObjectsBase, TrakObjectType, TrakTree } from "../db/objects";
 
-export async function hashObject(path: string, type: TrakObjectType, write: boolean = false) {
-    console.log(path);
+export async function hashObject(path: string, type: string, write: boolean = false) {
     const data = await FileSystem.readFile(path);
-    const baseObject = new TrakObject(type, data);
+    const baseObject = new TrakObject(type as TrakObjectType, data);
     
     let object;
     switch(type) {

@@ -1,7 +1,0 @@
-[user]
-  name = Sam Shadow
-  email = samappkub@gmail.com
-
-[remote "origin"]
-  url = https://www.trakhub.com:shadow/first.trak
-  fetch = +refs/heads/*:refs/remotes/origin/*

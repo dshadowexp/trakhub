@@ -1,8 +1,7 @@
-import { TrakCommit, TrakObjectsBase } from "../db/objects";
+import { TrakCommit, TrakObjectsBase, TrakObjectType } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakRepository } from "../repository";
 import { FileSystem } from "./standard";
-import { TrakObjectType } from "../types";
 import { isAbbreviatedSha, isValidSha } from "../util";
 
 /*********************************************************************************************************

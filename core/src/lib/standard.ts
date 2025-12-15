@@ -6,7 +6,7 @@ import { pipeline } from "stream/promises";
 import { dirname, join } from "path";
 import { UnixFileModeEnum } from "../types";
 
-export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb', '.DS_Store', 'fakeconfig.txt'];
+export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb', '.DS_Store', 'fakeconfig.txt', '.trakconfig', 'package-lock.json'];
 const ignoreSet = new Set(IGNORE);
 
 export class Terminal {

@@ -1,6 +1,6 @@
 import { join } from "path";
 import { TrakRepository } from "../repository";
-import type { TrakTreeEntry } from "../types";
+import { NULL_OID, NULL_PATH, type TrakTreeEntry } from "../types";
 import { TrakBlob, TrakObjectsBase } from "../db/objects";
 import { Terminal, FileSystem } from "../lib/standard";
 import { TrakIndex } from "../db/t-index";
@@ -9,8 +9,7 @@ import { getTreeFilesFromCommit } from "./-shared";
 import { shortHash } from "../util";
 import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
 
-const NULL_PATH = "/dev/null";
-const NULL_OID = "0".repeat(40);
+
 
 type DiffOp =
     | { type: "add"; line: string; position: number }

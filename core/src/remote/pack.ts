@@ -1,14 +1,14 @@
 import { createHash, type Hash } from "crypto";
 import { Readable, Writable } from "stream";
-import { deflate, createInflate } from "zlib";
-import { promisify } from "util";
+import { createDeflate, createInflate, constants } from "zlib";
 import { TrakObject, TrakObjectsBase, TrakObjectType } from "../db/objects";
 import type { TrakRepository } from "../repository";
 
+export const HEADER_SIGNATURE = "PACK";
 const HEADER_SIZE = 12;
-const HEADER_SIGNATURE = "PACK";
 const VERSION: number = 2;
 const SEEK_SET = 0;
+const ZLIB_DEFAULT_COMPRESSION = constants.Z_DEFAULT_COMPRESSION;
 
 const PackFileObjectType = {
     COMMIT: 1,
@@ -20,15 +20,19 @@ type PackFileObjectType = typeof PackFileObjectType[keyof typeof PackFileObjectT
 
 type PackEntry = { oid: string, type: PackFileObjectType }
 
-class PackWriter {
+interface PackWriterOptions {
+    compression?: number;
+}
+
+export class PackWriter {
     private _packList: PackEntry[];
     private _hash: Hash;
-    private _compress;
+    private _compression: number;
 
-    constructor(private _repo: TrakRepository, private _outPut: Writable) {
+    constructor(private _repo: TrakRepository, private _outPut: Writable, options: PackWriterOptions = {}) {
         this._packList = []
         this._hash = createHash('sha1');
-        this._compress = promisify(deflate);
+        this._compression = options.compression || ZLIB_DEFAULT_COMPRESSION;
     }
 
     async writeObjects(revList: TrakObject[]) {
@@ -84,7 +88,7 @@ class PackWriter {
         }
 
         const header = this._varIntLEWrite(size, type);
-        const compressedData = await this._compress(data);
+        const compressedData = await this._deflateBuffer(data);
 
         this._write(header);
         this._write(compressedData)
@@ -93,6 +97,19 @@ class PackWriter {
     _write(data: Buffer) {
         this._outPut.write(data);
         this._hash.update(data);
+    }
+
+    _deflateBuffer(data: Buffer): Promise<Buffer> {
+        return new Promise((resolve, reject) => {
+            const deflater = createDeflate({ level: this._compression });
+            const chunks: Buffer[] = [];
+        
+            deflater.on("data", c => chunks.push(c));
+            deflater.on("end", () => resolve(Buffer.concat(chunks)));
+            deflater.on("error", reject);
+        
+            deflater.end(data);
+        });
     }
 
     _varIntLEWrite(size: number, type: number) {
@@ -119,16 +136,20 @@ class PackWriter {
     }
 }
 
-class PackReader {
+export class PackReader {
     private _count: number;
-    private _stream: HashingStreamReader;
+    private _stream: PackStreamReader;
 
-    constructor(private _repo: TrakRepository, private _inPut: Readable) {
+    constructor(private _repo: TrakRepository, private _inPut: PackStreamReader) {
         this._count = 0;
-        this._stream = new HashingStreamReader(this._inPut);
+        this._stream = _inPut;
     }
 
-    _readHeader() {
+    get count(): number {
+        return this._count;
+    }
+
+    readHeader() {
         const data: Buffer | null = this._stream.read(HEADER_SIZE);
 
         if (!data || data.length < HEADER_SIZE) {
@@ -148,7 +169,7 @@ class PackReader {
         }
     }
 
-    async _readRecord() {
+    async readRecord() {
         const { type } = this._readRecordHeader();
         const data = await this._readZlibStream();
 
@@ -221,12 +242,12 @@ class PackReader {
         });
     }
 
-    _readRecordHeader() {
+    private _readRecordHeader() {
         const [type, size] = this._varIntLERead();
         return { type, size };
     }
 
-    _varIntLERead(): [number, number] {
+    private _varIntLERead(): [number, number] {
         let byte = this._stream.readByte();
 
         const type = (byte & 0x70) >> 4;
@@ -243,18 +264,18 @@ class PackReader {
     }
 }
 
-class HashingStreamReader {
+export class PackStreamReader {
     private _hash: Hash;
     private _offset: number;
     private _stream: Readable;
     private _buffer: Buffer;
     private _capture: Buffer | null;
 
-    constructor(stream: Readable) {
-        this._stream = stream;
+    constructor(input: Readable, buffer: Buffer = Buffer.alloc(0)) {
+        this._stream = input;
         this._hash = createHash('sha1');
         this._offset = 0;
-        this._buffer = this._newByteString();
+        this._buffer = Buffer.concat([this._newByteString(), buffer]);
         this._capture = null;
     }
 
@@ -262,7 +283,7 @@ class HashingStreamReader {
         return this._offset;
     }
 
-    _newByteString(): Buffer {
+    private _newByteString(): Buffer {
         return Buffer.alloc(0);
     }
 
@@ -337,7 +358,7 @@ class HashingStreamReader {
         return data;
     }
 
-    _readBuffered(size: number, block: boolean = true): Buffer {
+    private _readBuffered(size: number, block: boolean = true): Buffer {
         const fromBuf = this._buffer.subarray(0, size);
         try {
             const needed = size - fromBuf.length;
@@ -348,7 +369,7 @@ class HashingStreamReader {
         } 
     }
 
-    _readNonBlock(size: number): Buffer {
+    private _readNonBlock(size: number): Buffer {
         const data = this._readBuffered(size, false);
         this._updateState(data);
         return data;

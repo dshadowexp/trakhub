@@ -58,8 +58,10 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
 
     // Set HEAD to point to the target branch
     await TrakRefs.setCurrentBranch(repo, targetRef);
-    if (options.createBranch)
+
+    if (options.createBranch) {
         Terminal.println(`Switched to a new branch ${targetRef}`);
-    else
+    } else {
         Terminal.println(`Switched to branch ${targetRef}`);
+    }
 }

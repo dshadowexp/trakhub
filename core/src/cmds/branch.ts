@@ -4,8 +4,9 @@ import { TrakRepository } from "../repository";
 import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { shortHash } from "../util";
 import { resolveStartPoint } from "../lib/revision";
+import { Command } from "../types";
 
-type BranchArgs = { 
+interface BranchArgs { 
     list?: boolean,
     verbose?: boolean, 
     delete?: boolean,
@@ -13,6 +14,29 @@ type BranchArgs = {
     create?: boolean,
     startPoint?: string
 }
+
+export class Branch extends Command<BranchArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'branch', 
+            'Manage branches',
+            [
+                { name: 'branches', type: String, multiple: true, defaultOption: true },
+                { name: 'verbose', alias: 'v', type: Boolean },
+                { name: 'delete', alias: 'd', type: Boolean },
+                { name: 'forceDelete', alias: 'D', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async execute(): Promise<void> {
+        await super.execute();
+        console.log(this._args);
+    } 
+}
+
+
 
 export async function branch(branchName: string, options: BranchArgs = {}) {
     const repo = await TrakRepository.repoFind();

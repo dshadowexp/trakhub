@@ -2,10 +2,14 @@
   "name": "@trakhub/core",
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/command-line-args": "^5.2.3",
     "tsx": "^4.21.0"
   },
   "description": "Build your own Git challenge, from CodeCrafters",
   "scripts": {
     "dev": "bun run main.ts"
+  },
+  "dependencies": {
+    "command-line-args": "^6.0.1"
   }
 }

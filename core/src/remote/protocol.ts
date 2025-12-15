@@ -1,26 +1,8 @@
-// Define protocol
-/**
- * 
- * 
- * What the Server side sends
- * <oid> <refname>\0<capabilities>\n
- * <oid> <refname>\n
- * 0000
- * 
- * Client sends
- * want <oid>\n
- * have <oid>\n
- * done\n
- * 
- * Everything is framed using pkt-line encoding
- * pkt-line format - LLLL<data> where LLLL Buffer.from(length.toString(16).padStart(4, "0"))
- */
-
 import type { Readable, Writable } from "stream";
 import { NULL_BYTE } from "../types";
 import { intersection } from "../util";
 
-class Protocol {
+export class Protocol {
     private _localCapabilities: string[] = [];
     private _remoteCapabilities: string[] = [];
     private _capabilitiesSent: boolean;
@@ -29,6 +11,14 @@ class Protocol {
         this._localCapabilities = _capabilities;
         this._capabilitiesSent = false;
     } 
+
+    get input(): Readable {
+        return this._input;
+    }
+
+    get output(): Writable {
+        return this._outPut;
+    }
 
     isCapable(ability: string): boolean {
         return this._localCapabilities.includes(ability);
@@ -43,23 +33,16 @@ class Protocol {
         this._outPut.write(this._encodePktLine(this._appendCaps(line)));
     }
 
-    *recvUntil(terminator: string): Generator<string> {
+    *recvUntil(terminator: string | null): Generator<string> {
         while (true) {
             const line = this.recvPkt();
-    
-            // A flush packet (0000), which recvPkt returns as an empty buffer,
-            // is a common terminator for pkt-line sequences.
-            if (line.length === 0) {
-                break;
-            }
-    
+            
+            if (line.length === 0) break; // Flush packet
+            
             const lineStr = line.toString('utf-8');
-    
-            // Also break if we receive the specific terminator string.
-            if (lineStr === terminator) {
-                break;
-            }
-    
+            
+            if (terminator !== null && lineStr === terminator) break;
+            
             yield lineStr;
         }
     }

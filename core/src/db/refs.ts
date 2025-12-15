@@ -3,7 +3,7 @@ import { TrakRepository } from "../repository";
 import { isValidSha } from "../util";
 import { getConfig, setConfig, TrakConfig } from "./config";
 
-class Refspec {
+export class Refspec {
     private static readonly REFSPEC_FORMAT = /^(\+?)([^:]+):([^:]+)$/;
 
     constructor(private _source: string, private _target: string, private _forced: boolean) {}
@@ -52,7 +52,9 @@ class Refspec {
         return new Refspec(source, target, force);
     }
 
-    static expand(specs: string[], refs: string[]) {
+    static canonical(name: string) {}
+
+    static expand(specs: string[], refs: string[]): Record<string, [string, boolean]> {
         const refSpecs = specs.map(spec => Refspec.parse(spec));
         return refSpecs.reduce((accum, curr) => {
             if (!curr) return accum;
@@ -61,27 +63,29 @@ class Refspec {
     }
 }
 
-class Remote {
+class ConfigRemoteSection {
     constructor(private _config: TrakConfig, private _name: string) {}
 
     get fetchUrl() {
-        return this._config.get("remote", this._name, "url");
+        return this._config.get("remote", "url", this._name);
     }
 
     get pushUrl() {
-        return this._config.get("remote", this._name, "pushUrl") || this.fetchUrl;
+        return this._config.get("remote", "pushUrl", this._name) || this.fetchUrl;
     }
 
     get fetchSpecs() {
-        return this._config.getAll("remote", this._name, "fetch");
+        return this._config.getAll("remote", "fetch", this._name);
     }
 
     get uploader() {
-        return this._config.get("remote", this._name, "uploadpack");
+        return this._config.get("remote", "uploadpack", this._name);
     }
 }
 
 export class TrakRemotes {
+    static readonly DEFAULT_REMOTE = "origin";
+
     static async add(repo: TrakRepository, name: string, url: string, branches: string[]) {
         branches = branches.length === 0 ? ["*"] : branches;
         const cfg = await getConfig('local');
@@ -119,16 +123,47 @@ export class TrakRemotes {
         return remoteSection.map(section => section.subsection).filter(Boolean) as string[];
     }
 
-    static async get(subSection: string): Promise<Remote | null> {
+    static async get(subSection: string): Promise<ConfigRemoteSection | null> {
         const cfg = await getConfig('local');
         if(!cfg.getSection("remote", subSection))
             return null;
 
-        return new Remote(cfg, subSection);
+        return new ConfigRemoteSection(cfg, subSection);
+    }
+}
+
+class SymRef {
+    constructor(public readonly path: string) {}
+
+    isHead(): boolean {
+        return this.path === "HEAD";
+    }
+
+    async readOid(repo: TrakRepository): Promise<string | null> {
+        return await TrakRefs.readRef(repo, this.path);
     }
 }
 
 export class TrakRefs {
+    static async listAllRefs(repo: TrakRepository): Promise<SymRef[]> {
+        const refsPath = TrakRepository.repoPath(repo, "refs");
+        return [new SymRef('HEAD'), ...await this.listRefs(refsPath)]
+    }
+
+    static async listBranches(repo: TrakRepository): Promise<SymRef[]> {
+        const headsPath = TrakRepository.repoPath(repo, "refs", "heads");
+        return await this.listRefs(headsPath);
+    }
+
+    private static async listRefs(dirname: string): Promise<SymRef[]> {
+        try {
+            const refs = await FileSystem.listFiles(dirname);
+            return refs.map(ref => new SymRef(ref));
+        } catch {
+            return [];
+        }
+    }
+
     static async branchExists(repo: TrakRepository, branchName: string) {
         const refsFilePath = (await TrakRepository.repoFile(repo, false, "refs", "heads", branchName))!;
         return FileSystem.exists(refsFilePath);
@@ -215,7 +250,7 @@ export class TrakRefs {
     }
 
     static async getCurrentHeadCommit(repo: TrakRepository,) {
-        const headRef = await this._readReference(repo, "HEAD");
+        const headRef = await this.readRef(repo, "HEAD");
         if (!headRef || headRef.trim() === "") {
             return null;
         }
@@ -224,14 +259,14 @@ export class TrakRefs {
         if (headRef.startsWith("ref:")) {
             const branchRef = this._extractBranchFromSymbolic(headRef);
             if (!branchRef) return null;
-            return await this._readReference(repo, branchRef);
+            return await this.readRef(repo, branchRef);
         }
     
         // CASE 2: Detached HEAD (HEAD contains a commit SHA)
         return headRef.trim();
     }
     
-    private static async _readReference(repo: TrakRepository, refPath: string) {
+    static async readRef(repo: TrakRepository, refPath: string) {
         const fullPath = await TrakRepository.repoFile(repo, false, refPath);
         if (!fullPath || !FileSystem.exists(fullPath))
             return null;

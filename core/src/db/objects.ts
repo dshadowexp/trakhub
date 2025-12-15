@@ -134,6 +134,7 @@ export class TrakObject {
     constructor(objType: TrakObjectType, data: Buffer = Buffer.from('')) {
         this._type = objType;
         this._content = data;
+        this._content = this.serialize();
     }
 
     get type(): string | undefined {
@@ -173,7 +174,6 @@ export class TrakBlob extends TrakObject {
 export class TrakTree extends TrakObject {
     constructor(private _entries: TrakTreeEntry[] = []) {
         super(TrakObjectType.TREE);
-        this._content = this.serialize();
     }
 
     get entries(): TrakTreeEntry[] {
@@ -225,7 +225,6 @@ export class TrakCommit extends TrakObject {
         private _message: string,
     ) {
         super(TrakObjectType.COMMIT);
-        this._content = this.serialize();
     }
 
     get treeHash(): string {

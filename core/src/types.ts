@@ -1,4 +1,9 @@
+import commandLineArgs from "command-line-args";
+import type { TrakRepository } from "./repository";
+
 export const NULL_BYTE: string = "\0";
+export const NULL_PATH = "/dev/null";
+export const NULL_OID = "0".repeat(40);
 
 export enum PackFileObjectTypeEnum {
   RESERVED_0,
@@ -26,6 +31,23 @@ export enum UnixFileModeEnum {
 export type DirTree = { [name: string]: DirTree | string };
 
 export type TrakTreeEntry = { mode: string, name: string, oid: string };
+
+export class Command<T> {
+    protected _args: T;
+    // protected _repo: TrakRepository;
+
+    constructor(private _name: string, private _description: string, _options: any, argv: any[] = []) {
+        this._args = this._initialize(_options, argv);
+    }
+
+    private _initialize<T>(options: any, argv: any[]): T {
+        return commandLineArgs(options, { argv }) as T;
+    }
+
+    execute(): Promise<void> {
+        throw new Error("Method not implemented.");
+    }
+}
 
 export class TrakAuthor {
     constructor(private _name: string, private _email: string, private _timestamp: number = 0) {

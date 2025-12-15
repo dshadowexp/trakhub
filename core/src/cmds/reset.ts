@@ -1,4 +1,3 @@
-import { TrakCommit, TrakObjectsBase } from "../db/objects";
 import { TrakRefs } from "../db/refs";
 import { TrakIndex } from "../db/t-index";
 import { resolveStartPoint } from "../lib/revision";

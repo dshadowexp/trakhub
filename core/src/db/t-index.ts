@@ -47,7 +47,7 @@ export class IndexEntry {
      * @param hash 
      * @returns 
      */
-    static createFromPathAndHash(path: string, hash: string): IndexEntry {
+    static create(path: string, hash: string): IndexEntry {
         // Get file stats
         const stats = FileSystem.stats(path);
         const flags = Math.min(Buffer.from(path).byteLength, MAX_PATH_SIZE);
@@ -127,7 +127,7 @@ export class TrakIndex {
         // Only add if the path doesn't exist in any remaining entries
         const exists = this._entries.some(entry => entry.path === path);
         if (!exists) {
-            const entry = IndexEntry.createFromPathAndHash(path, hash);
+            const entry = IndexEntry.create(path, hash);
             this._entries.push(entry);
         }
     }

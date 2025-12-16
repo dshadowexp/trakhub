@@ -1,54 +1,92 @@
+import { dirname, join } from 'path';
 import { createHash } from 'crypto';
-import { TrakAuthor, type TrakTreeEntry } from '../types';
 import { createReadStream, createWriteStream } from "fs";
+import { mkdir } from 'fs/promises';
+import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
 import { createDeflate, createInflate } from "zlib";
-import { Readable, Writable } from "stream";
-import { TrakRepository } from "../repository";
 import { getTimezone } from '../util';
 import { FileSystem } from '../lib/standard';
-import { NULL_BYTE } from '../types';
+import { TrakAuthor } from './author';
+import { NULL_BYTE, type TrakTreeEntry } from '../types';
 
-// const TrakObjectType = {
-//     COMMIT: "commit",
-//     TREE: "tree",
-//     BLOB: "blob",
-// } as const;
-
-// export type TrakObjectType = typeof TrakObjectType[keyof typeof TrakObjectType];
-
-export enum TrakObjectType {
+export enum TObjectType {
     COMMIT = "commit",
     TREE = "tree",
     BLOB = "blob",
 }
 
-export class TrakObjectsBase {
-    static async writeObject(object: TrakObject, repo?: TrakRepository | null) {
+export class TObjects {
+    constructor(private _objectsFolderPath: string) {}
+
+    async writeObject(object: TObject, write?: boolean) {
         // Compute object hash
         const objectHash = object.hash();
 
-        if (repo) {
+        if (write) {
             // Create the directory structure (e.g., .git/objects/ab/cdefgh...)
-            const objectFilePath = await TrakRepository.repoFile(repo, true, "objects",  objectHash.substring(0, 2), objectHash.substring(2));
+            const objectFilePath = join(this._objectsFolderPath, objectHash.substring(0, 2), objectHash.substring(2));
 
             // Ensure directory exists
-            if (objectFilePath && !FileSystem.exists(objectFilePath)) {
-                const result = Buffer.concat([Buffer.from(`${object.type} ${object.content.byteLength}${ NULL_BYTE }`), object.content]);
-        
-                await pipeline(
-                    Readable.from(result), 
-                    createDeflate(), 
-                    createWriteStream(objectFilePath)
-                );
+            if (!FileSystem.exists(dirname(objectFilePath))) {
+                await mkdir(dirname(objectFilePath), { recursive: true });
             }
+
+            const result = Buffer.concat([Buffer.from(`${ object.type } ${ object.content.byteLength }${ NULL_BYTE }`), object.content]);
+        
+            await pipeline(
+                Readable.from(result), 
+                createDeflate(), 
+                createWriteStream(objectFilePath)
+            );
         }
 
         return objectHash;
     }
 
-    static async readObjectHeader(repo: TrakRepository, hash: string): Promise<[string, number, Buffer]> {
-        const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
+    async readRaw(hash: string) {
+        const [objectType, size, content] = await this._readObjectHeader(hash);
+        return {
+            type: objectType,
+            size,
+            data: content
+        };
+    }
+
+    async readTreeObject(hash: string): Promise<TTree> {
+        const treeObject = await this.readObject(hash);
+        if (treeObject.type !== TObjectType.TREE)
+            throw new Error(`Object ${hash} is not a tree object`);
+
+        return treeObject as TTree;
+    }
+
+    async readCommitObject(hash: string): Promise<TCommit> {
+        const treeObject = await this.readObject(hash);
+        if (treeObject.type !== TObjectType.COMMIT)
+            throw new Error(`Object ${hash} is not a commit object`);
+
+        return treeObject as TCommit;
+    }
+
+    async readObject(hash: string): Promise<TBlob | TTree | TCommit> {
+        const [objectType, _, content] = await this._readObjectHeader(hash);
+
+        const baseObject = new TObject(objectType as TObjectType, content);
+        switch(objectType as TObjectType) {
+            case TObjectType.BLOB:
+                return TBlob.deserialize(baseObject.content);
+            case TObjectType.TREE:
+                return TTree.deserialize(baseObject.content);
+            case TObjectType.COMMIT:
+                return TCommit.deserialize(baseObject.content);
+            default:
+                throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
+        }
+    } 
+
+    private async _readObjectHeader(hash: string): Promise<[string, number, Buffer]> {
+        const path = join(this._objectsFolderPath, hash.substring(0, 2), hash.substring(2));
 
         if (!path || !FileSystem.exists(path))
             throw new Error(`Object ${hash} not found`);
@@ -94,44 +132,13 @@ export class TrakObjectsBase {
 
         return [objectType, size, content];
     }
-
-    static async readRaw(repo: TrakRepository, hash: string) {
-        const [objectType, size, content] = await TrakObjectsBase.readObjectHeader(repo, hash);
-        return {
-            type: objectType,
-            size,
-            data: content
-        };
-    }
-
-    static async readObject(repo: TrakRepository, hash: string): Promise<TrakBlob | TrakTree | TrakCommit | null> {
-        const [objectType, size, content] = await TrakObjectsBase.readObjectHeader(repo, hash);
-
-        const baseObject = new TrakObject(objectType as TrakObjectType, content);
-        switch(objectType as TrakObjectType) {
-            case TrakObjectType.BLOB:
-                return TrakBlob.deserialize(baseObject.content);
-            case TrakObjectType.TREE:
-                return TrakTree.deserialize(baseObject.content);
-            case TrakObjectType.COMMIT:
-                return TrakCommit.deserialize(baseObject.content);
-            default:
-                throw new Error(`Unknown type ${ objectType } for object ${ hash }`);
-        }
-    }  
-    
-    static async exists(repo: TrakRepository, hash: string): Promise<boolean> {
-        const path = await TrakRepository.repoFile(repo, false, "objects", hash.substring(0, 2), hash.substring(2));
-
-        return path != undefined && FileSystem.exists(path);
-    }
 }
 
-export class TrakObject {
+export class TObject {
     protected _type: string;
     protected _content: Buffer;
 
-    constructor(objType: TrakObjectType, data: Buffer = Buffer.from('')) {
+    constructor(objType: TObjectType, data: Buffer = Buffer.from('')) {
         this._type = objType;
         this._content = data;
         this._content = this.serialize();
@@ -153,27 +160,23 @@ export class TrakObject {
     }
 
     serialize(): Buffer {
-        throw new Error('rawise not implemented');
+        return this._content;
     };
 }
 
-export class TrakBlob extends TrakObject {
+export class TBlob extends TObject {
     constructor(data: Buffer) {
-        super(TrakObjectType.BLOB, data);
+        super(TObjectType.BLOB, data);
     }
 
-    serialize(): Buffer {
-        return this._content;
-    }
-
-    static deserialize(content: Buffer): TrakBlob {
-        return new TrakBlob(content);
+    static deserialize(content: Buffer): TBlob {
+        return new TBlob(content);
     }
 }
 
-export class TrakTree extends TrakObject {
+export class TTree extends TObject {
     constructor(private _entries: TrakTreeEntry[] = []) {
-        super(TrakObjectType.TREE);
+        super(TObjectType.TREE);
     }
 
     get entries(): TrakTreeEntry[] {
@@ -191,9 +194,9 @@ export class TrakTree extends TrakObject {
         }));
     }
 
-    static deserialize(content: Buffer): TrakTree {
+    static deserialize(content: Buffer): TTree {
         // Initialize tree
-        const tree = new TrakTree();
+        const tree = new TTree();
         let i = 0;
 
         while (i < content.length) {
@@ -216,7 +219,7 @@ export class TrakTree extends TrakObject {
     }
 }
 
-export class TrakCommit extends TrakObject {
+export class TCommit extends TObject {
     constructor(
         private _treeHash: string, 
         private _parentHashes: string[], 
@@ -224,7 +227,7 @@ export class TrakCommit extends TrakObject {
         private _committer: TrakAuthor,
         private _message: string,
     ) {
-        super(TrakObjectType.COMMIT);
+        super(TObjectType.COMMIT);
     }
 
     get treeHash(): string {
@@ -262,7 +265,7 @@ export class TrakCommit extends TrakObject {
         return Buffer.from(lines.join("\n"));
     }
 
-    static deserialize(content: Buffer): TrakCommit {
+    static deserialize(content: Buffer): TCommit {
         // Splits content by new line
         const lines = content.toString().split('\n');
         let treeHash = null, 
@@ -292,7 +295,7 @@ export class TrakCommit extends TrakObject {
         }
 
         const message = lines.splice(message_start).join('\n');
-        return new TrakCommit(treeHash!, parentHashes, author!, committer!, message);
+        return new TCommit(treeHash!, parentHashes, author!, committer!, message);
     }
 
     private static _unwrapAuthorLine(content: string): [TrakAuthor, number, string] {

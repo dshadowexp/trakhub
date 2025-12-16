@@ -1,8 +1,8 @@
 import { join } from "path";
 import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
+import { TIndex } from "../repo/t-index";
 import { FileSystem } from "../lib/standard";
-import { TrakObjectsBase, TrakTree } from "../db/objects";
+import { TObjects, TTree } from "../repo/objects";
 import { UnixFileModeEnum, type DirTree, type TrakTreeEntry } from "../types";
 
 export async function writeTree(repo?: TrakRepository | null): Promise<string | null> {
@@ -54,7 +54,7 @@ function _organizeIntoHierarchy(): DirTree {
     const files: Record<string, string> = {};
     const dirs: Record<string, DirTree> = {};
 
-    for (const { path, sha1 } of TrakIndex.entries) {
+    for (const { path, sha1 } of TIndex.entries) {
         // Split path into directories
         const parts = path.split('/');
         if (parts.length === 1) {
@@ -122,7 +122,7 @@ async function _buildTreeRecursive(repo: TrakRepository, dirTree: DirTree, prefi
     }
 
     // Initialize a new Tree
-    const tree = new TrakTree(treeEntries);
+    const tree = new TTree(treeEntries);
     // Write and return tree hash
-    return await TrakObjectsBase.writeObject(tree, repo);
+    return await TObjects.writeObject(tree, repo);
 }

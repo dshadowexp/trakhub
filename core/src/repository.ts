@@ -1,6 +1,7 @@
-import { mkdir, realpath } from "fs/promises";
+import { realpath } from "fs/promises";
 import { join } from "path";
 import { FileSystem } from "./lib/standard";
+import { mkdirSync } from "fs";
 
 export class TrakRepository {
     private _trakDir: string;
@@ -25,13 +26,13 @@ export class TrakRepository {
         return join(repo.trakDir, ...path);
     }
 
-    static async repoFile(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
-        if (await this.repoDir(repo, mkDir, ...path.slice(0, -1))) {
+    static repoFile(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
+        if (this.repoDir(repo, mkDir, ...path.slice(0, -1))) {
             return this.repoPath(repo, ...path);
         }
     }
 
-    static async repoDir(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
+    static repoDir(repo: TrakRepository, mkDir: boolean, ...path: string[]) {
         const fullPath = this.repoPath(repo, ...path);
 
         if (FileSystem.exists(fullPath)) {
@@ -43,7 +44,7 @@ export class TrakRepository {
         }
 
         if (mkDir) {
-            await mkdir(fullPath, { recursive: true });
+            mkdirSync(fullPath, { recursive: true });
             return fullPath;
         } else {
             return null;

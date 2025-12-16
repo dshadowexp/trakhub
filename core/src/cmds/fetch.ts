@@ -1,5 +1,5 @@
-import type { TrakObject } from "../db/objects";
-import { Refspec, TrakRefs, TrakRemotes } from "../db/refs";
+import type { TObject } from "../repo/objects";
+import { Refspec, TRefs, TrakRemotes } from "../repo/refs";
 import { Terminal } from "../lib/standard";
 import { RemoteAgent } from "../remote/agent";
 import { HEADER_SIGNATURE } from "../remote/pack";
@@ -61,7 +61,7 @@ async function _sendWantList(repo: TrakRepository, conn: Protocol | undefined, f
     const localRefs: Record<string, string> = {};
 
     for (const [target, [source, forced]] of Object.entries(targets)) {
-        const localOid = await TrakRefs.readRef(repo, target);
+        const localOid = await TRefs.readRef(repo, target);
         const remoteOid = remoteRefs[source];
 
         if (localOid === remoteOid)
@@ -83,7 +83,7 @@ async function _sendWantList(repo: TrakRepository, conn: Protocol | undefined, f
 }
 
 async function _sendHaveList(conn: Protocol | undefined,) {
-    const revList: TrakObject[] = []; // ::RevList.new(repo, [], options)
+    const revList: TObject[] = []; // ::RevList.new(repo, [], options)
     revList.forEach(commit => {
         conn?.sendPktLine(`have ${ commit.hash() }`);
     })

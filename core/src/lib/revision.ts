@@ -1,5 +1,5 @@
-import { TrakCommit, TrakObjectsBase, TrakObjectType } from "../db/objects";
-import { TrakRefs } from "../db/refs";
+import { TCommit, TObjects, TObjectType } from "../repo/objects";
+import { TRefs } from "../repo/refs";
 import { TrakRepository } from "../repository";
 import { FileSystem } from "./standard";
 import { isAbbreviatedSha, isValidSha } from "../util";
@@ -10,12 +10,12 @@ import { isAbbreviatedSha, isValidSha } from "../util";
 
 export async function resolveStartPoint(repo: TrakRepository, startPoint: string): Promise<string | null> {
     // CASE 1: Branch name
-    if (await TrakRefs.branchExists(repo, startPoint)) {
-        return await TrakRefs.getBranchCommit(repo, startPoint);
+    if (await TRefs.branchExists(repo, startPoint)) {
+        return await TRefs.getBranchCommit(repo, startPoint);
     }
 
     // CASE 2: Tag name
-    if (await TrakRefs.tagExists(repo, startPoint)) {
+    if (await TRefs.tagExists(repo, startPoint)) {
         const tagPath = `.git/refs/tags/${startPoint}`;
         const tagContent = (await FileSystem.readFile(tagPath)).toString().trim();
 
@@ -23,14 +23,14 @@ export async function resolveStartPoint(repo: TrakRepository, startPoint: string
             return tagContent; // lightweight tag
         } else {
             // annotated tag
-            const tagObj = await TrakObjectsBase.readObject(repo, tagContent);
+            const tagObj = await TObjects.readObject(repo, tagContent);
             return tagObj!.hash();
         }
     }
 
     // CASE 3: HEAD
     if (startPoint === "@" || startPoint === "HEAD") {
-        return await TrakRefs.getCurrentHeadCommit(repo);
+        return await TRefs.getCurrentHeadCommit(repo);
     }
 
     // CASE 4: Relative reference (HEAD~1, main^, HEAD^^, etc.)
@@ -52,7 +52,7 @@ export async function resolveStartPoint(repo: TrakRepository, startPoint: string
                 return fullSha;
         } else {
             // full SHA
-            if (await TrakObjectsBase.exists(repo, startPoint)) 
+            if (await TObjects.exists(repo, startPoint)) 
                 return startPoint;
         }
     }
@@ -80,7 +80,7 @@ async function _resolveRelativeReference(repo: TrakRepository, ref: string): Pro
 
         let current = baseCommit;
         for (let i = 0; i < steps; i++) {
-            const commit = (await TrakObjectsBase.readObject(repo, current)) as TrakCommit;
+            const commit = (await TObjects.readObject(repo, current)) as TCommit;
             if (commit.parentHashes.length === 0) 
                 return null;
 
@@ -105,7 +105,7 @@ async function _resolveRelativeReference(repo: TrakRepository, ref: string): Pro
             const baseCommit = await resolveStartPoint(repo, commitRef);
             if (!baseCommit) return null;
 
-            const commit = (await TrakObjectsBase.readObject(repo, baseCommit)) as TrakCommit;
+            const commit = (await TObjects.readObject(repo, baseCommit)) as TCommit;
 
             if (parentNum === 1) return commit.parentHashes[0] ?? null;
             if (parentNum === 2) return commit.parentHashes[1] ?? null;
@@ -119,7 +119,7 @@ async function _resolveRelativeReference(repo: TrakRepository, ref: string): Pro
 
         let current = baseCommit;
         for (let i = 0; i < caretCount; i++) {
-            const commit = (await TrakObjectsBase.readObject(repo, current)) as TrakCommit;
+            const commit = (await TObjects.readObject(repo, current)) as TCommit;
             if (commit.parentHashes.length === 0) 
                 return null;
 
@@ -178,10 +178,10 @@ async function isCommitObject(repo: TrakRepository, hash: string): Promise<boole
     if (!path || !FileSystem.exists(path))
         return false;
 
-    const object = await TrakObjectsBase.readObject(repo, hash);
+    const object = await TObjects.readObject(repo, hash);
     if (!object)
         return false;
 
-    return object.type === TrakObjectType.COMMIT;
+    return object.type === TObjectType.COMMIT;
 }
 

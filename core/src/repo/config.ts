@@ -2,6 +2,49 @@ import { FileSystem } from "../lib/standard";
 
 export type ConfigFileLevel = 'local' | 'global' | 'system';
 
+export class TConfig {
+    constructor() {}
+
+    async getConfig(level: ConfigFileLevel): Promise<TrakConfig> {
+        const configFilePath = this._getConfigFilePath(level);
+        
+        // Check if file exists
+        if (!FileSystem.exists(configFilePath)) {
+            // Return empty config if file doesn't exist
+            return new TrakConfig();
+        }
+        
+        const gitConfigText = (await FileSystem.readFile(configFilePath)).toString();
+        return TrakConfig.parse(gitConfigText);
+    }
+    
+    async setConfig(level: ConfigFileLevel, content: string): Promise<void> {
+        const configFilePath = this._getConfigFilePath(level);
+        // Create parent directories if they don't exist
+        if (level === 'global') {
+            // const homeDir = await FileSystem.getHomeDirectory();
+            // FileSystem.ensureDirectoryExists(homeDir);
+        } else if (level === 'local') {
+            // FileSystem.ensureDirectoryExists('.trak');
+        }
+    
+        await FileSystem.writeFile(configFilePath, content);
+    }
+    
+    _getConfigFilePath(level: ConfigFileLevel) {
+        switch (level) {
+            case 'local':
+                return ".trak/config";
+            case 'global':
+                return "./.trakconfig"; //should be ~
+            case 'system':
+                return "/etc/trakconfig";
+            default:
+                throw new Error("Specify config level");
+        }
+    }
+}
+
 export async function getConfig(level: ConfigFileLevel): Promise<TrakConfig> {
     const configFilePath = _getConfigFilePath(level);
     

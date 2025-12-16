@@ -1,5 +1,5 @@
-import { TrakCommit, TrakObjectsBase } from "../db/objects";
-import { TrakRefs } from "../db/refs";
+import { TCommit, TObjects } from "../repo/objects";
+import { TRefs } from "../repo/refs";
 import { TrakRepository } from "../repository";
 import { Terminal } from "../lib/standard";
 import { formatGitDate } from "../util";
@@ -9,8 +9,8 @@ export async function log(maxCount: number = 10) {
     if (!repo)
         return;
 
-    const currentBranch = await TrakRefs.getCurrentBranch(repo);
-    let commitHash = await TrakRefs.getBranchCommit(repo, currentBranch)
+    const currentBranch = await TRefs.getCurrentBranch(repo);
+    let commitHash = await TRefs.getBranchCommit(repo, currentBranch)
 
     if (!commitHash) {
         process.stdout.write("No commits yet!\n");
@@ -37,7 +37,7 @@ async function* historyGenerator(repo: TrakRepository, commitHash: string, maxCo
 
     while (queue.length > 0 && count < maxCount) {
         const currentCommit = queue.shift()!;
-        const commit = (await TrakObjectsBase.readObject(repo, currentCommit)) as TrakCommit;
+        const commit = (await TObjects.readObject(repo, currentCommit)) as TCommit;
         yield [
             `commit ${ currentCommit }\n`,
             `Author: ${ commit.author.serialize() }\n`,

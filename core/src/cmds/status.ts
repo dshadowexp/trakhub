@@ -1,9 +1,9 @@
 import { getTreeFilesFromCommit } from "./-shared";
 import { FileSystem, Terminal } from "../lib/standard";
-import { TrakBlob } from "../db/objects";
-import { TrakRefs } from "../db/refs";
+import { TBlob } from "../repo/objects";
+import { TRefs } from "../repo/refs";
 import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
+import { TIndex } from "../repo/t-index";
 import type { TrakTreeEntry } from "../types";
 import { asyncFilter, difference, intersection } from "../util";
 
@@ -13,7 +13,7 @@ export async function status(isPorcelain: boolean = false) {
         return;
    
     // Load index (Staging area)
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     // COMPARE HEAD vs INDEX (staged changes)
     const indexAgainstHead = await compareHeadAgainstIndex(repo);
@@ -22,7 +22,7 @@ export async function status(isPorcelain: boolean = false) {
     const workingDirAgainstIndex = await compareWorkingDirectoryAgainstIndex(repo);
 
     // GET CONFLICTS
-    const conflicts: Record<string, number[]> = TrakIndex.entries.reduce((accum, current) => {
+    const conflicts: Record<string, number[]> = TIndex.entries.reduce((accum, current) => {
         if (current.stage === 0) return accum;
         if (!accum[current.path])
             accum[current.path] = [];
@@ -34,7 +34,7 @@ export async function status(isPorcelain: boolean = false) {
     if (isPorcelain) {
         printPorcelainFormat(indexAgainstHead, workingDirAgainstIndex, conflicts);
     } else {
-        const currentBranch = await TrakRefs.getCurrentBranch(repo);
+        const currentBranch = await TRefs.getCurrentBranch(repo);
         Terminal.println(`On branch ${ currentBranch }`);
         printLongFormat(indexAgainstHead, workingDirAgainstIndex, conflicts);
     }
@@ -47,14 +47,14 @@ export async function status(isPorcelain: boolean = false) {
  */
 export async function compareHeadAgainstIndex(repo: TrakRepository) {
     // Get current head commit
-    const currentHeadCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const currentHeadCommit = await TRefs.getCurrentHeadCommit(repo);
 
     // Get committed files
     const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentHeadCommit!)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
 
-    return await getStatus(TrakIndex.getFilePaths(), Object.keys(committedFiles), async (path) => TrakIndex.getEntry(path)!.sha1.toString("hex"), async (path) => committedFiles[path].oid);
+    return await getStatus(TIndex.getFilePaths(), Object.keys(committedFiles), async (path) => TIndex.getEntry(path)!.sha1.toString("hex"), async (path) => committedFiles[path].oid);
 }
 
 /**
@@ -66,11 +66,11 @@ export async function compareWorkingDirectoryAgainstIndex(repo: TrakRepository) 
     // Scan working directory
     const workingFiles = await FileSystem.listFiles(repo.workTree);
 
-    return await getStatus(workingFiles, TrakIndex.getFilePaths(), async (path) => {
+    return await getStatus(workingFiles, TIndex.getFilePaths(), async (path) => {
         const fileData = await FileSystem.readFile(path);
-        const blob = new TrakBlob(fileData);
+        const blob = new TBlob(fileData);
         return blob.hash();
-    }, async (path) => TrakIndex.getEntry(path)!.sha1.toString("hex"));
+    }, async (path) => TIndex.getEntry(path)!.sha1.toString("hex"));
 }
 
 /**

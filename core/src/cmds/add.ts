@@ -1,20 +1,16 @@
-import { resolve, relative, join } from "path";
-import { FileSystem } from "../lib/standard";
-import { TrakBlob, TrakObjectsBase } from "../db/objects";
-import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
-import { makePathsAbsolute } from "./-shared";
-import { Command } from "../types";
+import { join } from "path";
+import { TBlob } from "../repo/objects";
+import { BaseCommand } from "../types";
 
 interface AddArgs {
     paths: string[]
 }
 
-export class Add extends Command<AddArgs> {
+export class Add extends BaseCommand<AddArgs> {
     constructor(args: any[] = []) {
         super(
             'add', 
-            'add files',
+            'add files to the index',
             [
                 { name: 'paths', type: String, multiple: true, defaultOption: true },
             ],
@@ -23,40 +19,30 @@ export class Add extends Command<AddArgs> {
     }
 
     async execute(): Promise<void> {
-        await super.execute();
-        console.log(this._args);
-
-        const repo = await TrakRepository.repoFind();
-        if (!repo)
-            return;
-        
-        // Make paths absolute
-        const absolutePaths = makePathsAbsolute(this._args.paths, repo.workTree);
-
         // Load index
-        await TrakIndex.load(repo);
+        await this._repo!.index.load();
 
-        for (const fullPath of absolutePaths) {
+        for (const path of this._args.paths) {
             // Ensure path exists
-            if (!FileSystem.exists(fullPath))
-                throw new Error(`Path ${fullPath} not found`);
+            if (!this._repo!.workspace.exists(path))
+                throw new Error(`Path ${path} not found`);
 
-            if (FileSystem.isFile(fullPath)) {
+            if (this._repo!.workspace.isFile(path)) {
                 // Add file to object
-                await this._addFile(fullPath, repo);
-            } else if (FileSystem.isDirectory(fullPath)) {
+                await this._addFile(path);
+            } else if (this._repo!.workspace.isDirectory(path)) {
                 // Add files in directory
-                await this._addDirectory(fullPath, repo);
+                await this._addDirectory(path);
             } else {
-                throw new Error(`${fullPath} is neither a file nor directory`);
+                throw new Error(`${path} is neither a file nor directory`);
             }
         }
 
         // Write all entries to index file
-        await TrakIndex.save(repo);
+        await this._repo!.index.save();
     } 
 
-    private async _addDirectory(dirPath: string, repo: TrakRepository) {
+    private async _addDirectory(dirPath: string) {
         // Load index file json contents
         // const indexJSON = await TrakIndex.loadIndex(repo);
         const stack: string[] = [dirPath];
@@ -65,106 +51,29 @@ export class Add extends Command<AddArgs> {
             // Get current directory from stack
             const currentDir = stack.pop()!;
             // Read entries from directory
-            const entries = await FileSystem.readDirectory(currentDir) as string[];
+            const entries = await this._repo!.workspace.readDirectory(currentDir) as string[];
     
             // Populate stack and process file entries
             for (const entry of entries) {
                 // Resolve full path for directory entry
                 const fullPath = join(currentDir, entry);
     
-                if (FileSystem.isDirectory(fullPath)) {
+                if (this._repo!.workspace.isDirectory(fullPath)) {
                     // Push to stack if path is a directory
                     stack.push(fullPath);
                 } else {
-                    await _addFile(fullPath, repo);
+                    await this._addFile(fullPath);
                 }
             }
         }
     }
 
-    private async _addFile(filePath: string, repo: TrakRepository) {
+    private async _addFile(filePath: string) {
         // Read the file content
-        const fileContent = await FileSystem.readFile(filePath);
+        const fileContent = await this._repo!.workspace.readFile(filePath);
         // Create and Store blob object in database
-        const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
+        const blobHash = await this._repo!.objects.writeObject(new TBlob(fileContent), true);
         // Add entry to Index entries
-        TrakIndex.addEntry(relative(repo.workTree, filePath), blobHash);
-    }
-}
-
-
-export async function add(paths: string[]) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-    
-    // Make paths absolute
-    const absolutePaths = makePathsAbsolute(paths, repo.workTree);
-
-    // Resolve path argument
-    const fullPath = resolve(paths[0]);
-    // Ensure path exists
-    if (!FileSystem.exists(fullPath))
-        throw new Error(`Path ${fullPath} not found`);
-
-    // Load index file
-    await TrakIndex.load(repo);
-
-    if (FileSystem.isFile(fullPath)) {
-        // Add file to object
-        await _addFile(fullPath, repo);
-    } else if (FileSystem.isDirectory(fullPath)) {
-        // Add files in directory
-        await _addDirectory(fullPath, repo);
-    } else {
-        throw new Error(`${fullPath} is neither a file nor directory`);
-    }
-
-    // Write all entries to index file
-    await TrakIndex.save(repo);
-}
-
-/**
- * 
- * @param filePath 
- * @param repo 
- */
-async function _addFile(filePath: string, repo: TrakRepository) {
-    // Read the file content
-    const fileContent = await FileSystem.readFile(filePath);
-    // Create and Store blob object in database
-    const blobHash = await TrakObjectsBase.writeObject(new TrakBlob(fileContent), repo);
-    // Add entry to Index entries
-    TrakIndex.addEntry(relative(repo.workTree, filePath), blobHash);
-}
-
-/**
- * 
- * @param dirPath 
- * @param repo 
- */
-async function _addDirectory(dirPath: string, repo: TrakRepository) {
-    // Load index file json contents
-    // const indexJSON = await TrakIndex.loadIndex(repo);
-    const stack: string[] = [dirPath];
-
-    while (stack.length > 0) {
-        // Get current directory from stack
-        const currentDir = stack.pop()!;
-        // Read entries from directory
-        const entries = await FileSystem.readDirectory(currentDir) as string[];
-
-        // Populate stack and process file entries
-        for (const entry of entries) {
-            // Resolve full path for directory entry
-            const fullPath = join(currentDir, entry);
-
-            if (FileSystem.isDirectory(fullPath)) {
-                // Push to stack if path is a directory
-                stack.push(fullPath);
-            } else {
-                await _addFile(fullPath, repo);
-            }
-        }
+        this._repo!.index.add(filePath, blobHash, this._repo!.workspace.stats(filePath));
     }
 }

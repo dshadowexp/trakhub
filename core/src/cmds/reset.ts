@@ -1,5 +1,5 @@
-import { TrakRefs } from "../db/refs";
-import { TrakIndex } from "../db/t-index";
+import { TRefs } from "../repo/refs";
+import { TIndex } from "../repo/t-index";
 import { resolveStartPoint } from "../lib/revision";
 import { FileSystem } from "../lib/standard";
 import { TrakRepository } from "../repository";
@@ -25,7 +25,7 @@ export async function reset(options: ResetArgs = { paths: [], mode: 'mixed' }) {
     if (options.startPoint) {
         commitHash = await resolveStartPoint(repo, options.startPoint);
     } else {
-        commitHash = await TrakRefs.getCurrentHeadCommit(repo);
+        commitHash = await TRefs.getCurrentHeadCommit(repo);
     }
 
     if (!commitHash)
@@ -34,7 +34,7 @@ export async function reset(options: ResetArgs = { paths: [], mode: 'mixed' }) {
     const resetFiles = async () => {
         if (options.mode === 'soft') return;
         if (options.mode === 'hard') {
-            const headCommitHash = await TrakRefs.getCurrentHeadCommit(repo);
+            const headCommitHash = await TRefs.getCurrentHeadCommit(repo);
             const headTreeEntries = await getTreeFilesFromCommit(repo, commitHash!);
             
             return;
@@ -44,7 +44,7 @@ export async function reset(options: ResetArgs = { paths: [], mode: 'mixed' }) {
         const treeEntries = await getTreeFilesFromCommit(repo, commitHash!);
     
         if (absolutePaths.size == 0) {
-            TrakIndex.clear();
+            TIndex.clear();
             resetPath('', []);
         } else {
             absolutePaths.forEach((absPath) => {
@@ -54,27 +54,27 @@ export async function reset(options: ResetArgs = { paths: [], mode: 'mixed' }) {
     }
     
     const resetPath = (path: string, listing: TrakTreeEntry[]) => {
-        TrakIndex.removeEntry(path);
-        listing.map(entry => TrakIndex.addFromDb(path, entry));
+        TIndex.removeEntry(path);
+        listing.map(entry => TIndex.addFromDb(path, entry));
     }
 
     const resetPathHard = async (path: string, entry: TrakTreeEntry) => {
-        TrakIndex.removeEntry(path);
+        TIndex.removeEntry(path);
         await FileSystem.removeFile(path, repo.workTree);
     }
 
     // Load entries into the index
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     // Reset files
     await resetFiles();
 
     // Write updates to index
-    await TrakIndex.save(repo);
+    await TIndex.save(repo);
 
     // Update HEAD to the selected commit if no file paths were given
     if (options.paths.length === 0) {
-        await TrakRefs.setCurrentHeadCommit(repo, commitHash!);
+        await TRefs.setCurrentHeadCommit(repo, commitHash!);
     }
 }
 

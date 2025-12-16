@@ -1,4 +1,4 @@
-import { TrakRemotes } from "../db/refs";
+import { TrakRemotes } from "../repo/refs";
 import { Terminal } from "../lib/standard";
 import { TrakRepository } from "../repository";
 

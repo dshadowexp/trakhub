@@ -22,8 +22,8 @@ export class Terminal {
      * 
      * @param content 
      */
-    static println(content: string) {
-        this.print(`${ content }\n`);
+    static println(content: string | number | undefined) {
+        this.print(`${ content || '' }\n`);
     }
 
     /**

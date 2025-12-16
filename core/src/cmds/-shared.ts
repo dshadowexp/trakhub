@@ -2,7 +2,7 @@ import { dirname, join, resolve } from "path";
 import { mkdir } from "fs/promises";
 import { type TrakTreeEntry } from "../types";
 import { TrakRepository } from "../repository";
-import { TrakCommit, TrakTree, TrakObjectsBase, TrakBlob } from "../db/objects";
+import { TCommit, TTree, TObjects, TBlob } from "../repo/objects";
 import { difference } from "../util";
 import { FileSystem, Terminal } from "../lib/standard";
 import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
@@ -64,8 +64,8 @@ export async function updateWorkingDirectory(repo: TrakRepository, currentTree: 
         const dirPath = dirname(fullPath);
         await mkdir(dirPath, { recursive: true });
         // Read blob object from blob sha hash
-        const blobObject = (await TrakObjectsBase.readObject(repo, oid)) as TrakBlob;
-        const blob = TrakBlob.deserialize(blobObject.content);
+        const blobObject = (await TObjects.readObject(repo, oid)) as TBlob;
+        const blob = TBlob.deserialize(blobObject.content);
         // Write blob content to file
         await FileSystem.writeFile(fullPath, blob.content);
     }
@@ -79,7 +79,7 @@ export async function updateWorkingDirectory(repo: TrakRepository, currentTree: 
  */
 export async function getTreeFilesFromCommit(repo: TrakRepository, commitHash: string): Promise<TrakTreeEntry[]> {
     try {
-        const commitObject = (await TrakObjectsBase.readObject(repo, commitHash)) as TrakCommit;
+        const commitObject = (await TObjects.readObject(repo, commitHash)) as TCommit;
         return await extractFilesFromTree(repo, commitObject.treeHash);
     } catch (error) {
         return [];
@@ -98,7 +98,7 @@ export async function extractFilesFromTree(repo: TrakRepository, treeHash: strin
     let files: TrakTreeEntry[] = [];
 
     try {
-        const treeObject = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
+        const treeObject = (await TObjects.readObject(repo, treeHash)) as TTree;
 
         for (const { mode, name, oid } of treeObject.entries) {
             // Compute relative file path

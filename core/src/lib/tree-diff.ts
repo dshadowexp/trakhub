@@ -1,5 +1,5 @@
 import { join } from "path";
-import { TrakCommit, TrakObjectsBase, TrakTree } from "../db/objects";
+import { TCommit, TObjects, TTree } from "../repo/objects";
 import { TrakRepository } from "../repository";
 import { UnixFileModeEnum, type TrakTreeEntry } from "../types";
 
@@ -26,8 +26,8 @@ export type DiffEntry = {
  * @returns 
  */
 export async function treeDiff(repo: TrakRepository, sourceCommitHash: string, targetCommitHash: string) {
-     const commitObjectA = (await TrakObjectsBase.readObject(repo, sourceCommitHash)) as TrakCommit;
-     const commitObjectB = (await TrakObjectsBase.readObject(repo, targetCommitHash)) as TrakCommit;
+     const commitObjectA = (await TObjects.readObject(repo, sourceCommitHash)) as TCommit;
+     const commitObjectB = (await TObjects.readObject(repo, targetCommitHash)) as TCommit;
      return await compareTrees(repo, commitObjectA.treeHash, commitObjectB.treeHash);
 }
 
@@ -40,8 +40,8 @@ export async function treeDiff(repo: TrakRepository, sourceCommitHash: string, t
  */
 async function compareTrees(repo: TrakRepository, treeHashA: string | null, treeHashB: string | null, prefix: string = ""): Promise<DiffEntry[]> {
     let changes: DiffEntry[] = [];
-    const treeAEntries = !treeHashA ? [] : ((await TrakObjectsBase.readObject(repo, treeHashA)) as TrakTree).entries;
-    const treeBEntries = !treeHashB ? [] : ((await TrakObjectsBase.readObject(repo, treeHashB)) as TrakTree).entries;
+    const treeAEntries = !treeHashA ? [] : ((await TObjects.readObject(repo, treeHashA)) as TTree).entries;
+    const treeBEntries = !treeHashB ? [] : ((await TObjects.readObject(repo, treeHashB)) as TTree).entries;
 
     let indexA = 0, indexB = 0;
     let entryA: TrakTreeEntry, entryB: TrakTreeEntry;

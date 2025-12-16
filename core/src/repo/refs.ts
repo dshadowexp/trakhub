@@ -3,148 +3,8 @@ import { TrakRepository } from "../repository";
 import { isValidSha } from "../util";
 import { getConfig, setConfig, TrakConfig } from "./config";
 
-export class Refspec {
-    private static readonly REFSPEC_FORMAT = /^(\+?)([^:]+):([^:]+)$/;
-
-    constructor(private _source: string, private _target: string, private _forced: boolean) {}
-
-    toString() {
-        let spec = this._forced ? "+" : "";
-        return `${ spec }${ this._source }:${ this._target }`;
-    }
-
-    matchRefs(refs: string[]): Record<string, [string, boolean]> {
-        // If no wildcard, return single mapping
-        if (this._source.includes("*")) {
-            return { [this._target]: [this._source, this._forced] };
-        }
-
-        // Create pattern by replacing * with capture group
-        const patternStr = this._source.replace("*", "(.*)");
-        const pattern = new RegExp(`^${patternStr}$`);
-        
-        const mappings: Record<string, [string, boolean]> = {};
-
-        for (const ref of refs) {
-            const match = ref.match(pattern);
-            if (!match) continue;
-
-            const captured = match[1];
-            const dst = captured ? this._target.replace("*", captured) : this._target;
-            
-            mappings[dst] = [ref, this._forced];
-        }
-
-        return mappings;
-    }
-
-    static parse(spec: string): Refspec | null {
-        const match = spec.match(Refspec.REFSPEC_FORMAT);
-        
-        if (!match) {
-            return null;
-        }
-
-        const force = match[1] === "+";
-        const source = match[2];
-        const target = match[3];
-
-        return new Refspec(source, target, force);
-    }
-
-    static canonical(name: string) {}
-
-    static expand(specs: string[], refs: string[]): Record<string, [string, boolean]> {
-        const refSpecs = specs.map(spec => Refspec.parse(spec));
-        return refSpecs.reduce((accum, curr) => {
-            if (!curr) return accum;
-            return { ...accum, ...curr.matchRefs(refs) };
-        }, {} as Record<string, [string, boolean]>);
-    }
-}
-
-class ConfigRemoteSection {
-    constructor(private _config: TrakConfig, private _name: string) {}
-
-    get fetchUrl() {
-        return this._config.get("remote", "url", this._name);
-    }
-
-    get pushUrl() {
-        return this._config.get("remote", "pushUrl", this._name) || this.fetchUrl;
-    }
-
-    get fetchSpecs() {
-        return this._config.getAll("remote", "fetch", this._name);
-    }
-
-    get uploader() {
-        return this._config.get("remote", "uploadpack", this._name);
-    }
-}
-
-export class TrakRemotes {
-    static readonly DEFAULT_REMOTE = "origin";
-
-    static async add(repo: TrakRepository, name: string, url: string, branches: string[]) {
-        branches = branches.length === 0 ? ["*"] : branches;
-        const cfg = await getConfig('local');
-
-        if (cfg.get("remote", name, "url")) {
-            //@config.save might be needed
-            throw new Error(`remote ${ name } already exists.`);
-        }
-
-        cfg.set("remote", name, url, "url");
-
-        for (const branch of branches) {
-            const source = (await TrakRepository.repoFile(repo, false, "refs", "heads", branch))!;
-            const target = (await TrakRepository.repoFile(repo, false, "refs", "remotes", name, branch))!;
-            const spec = new Refspec(source, target, true);
-            cfg.add("remote", name, spec.toString(), "fetch");
-        }
-
-        await setConfig('local', cfg.toString());
-    }
-
-    static async remove(name: string) {
-        const cfg = await getConfig('local');
-
-        if (!cfg.removeSection(name)) {
-            throw new Error(`No such remote: ${ name }`);
-        }
-
-        await setConfig('local', cfg.toString());
-    }
-
-    static async listRemotes(): Promise<string[]> {
-        const cfg = await getConfig('local');
-        const remoteSection = cfg.getSections("remote");
-        return remoteSection.map(section => section.subsection).filter(Boolean) as string[];
-    }
-
-    static async get(subSection: string): Promise<ConfigRemoteSection | null> {
-        const cfg = await getConfig('local');
-        if(!cfg.getSection("remote", subSection))
-            return null;
-
-        return new ConfigRemoteSection(cfg, subSection);
-    }
-}
-
-class SymRef {
-    constructor(public readonly path: string) {}
-
-    isHead(): boolean {
-        return this.path === "HEAD";
-    }
-
-    async readOid(repo: TrakRepository): Promise<string | null> {
-        return await TrakRefs.readRef(repo, this.path);
-    }
-}
-
-export class TrakRefs {
+export class TRefs {
+    constructor(private _refsPath: string) {}
     static async listAllRefs(repo: TrakRepository): Promise<SymRef[]> {
         const refsPath = TrakRepository.repoPath(repo, "refs");
         return [new SymRef('HEAD'), ...await this.listRefs(refsPath)]
@@ -267,7 +127,7 @@ export class TrakRefs {
     }
     
     static async readRef(repo: TrakRepository, refPath: string) {
-        const fullPath = await TrakRepository.repoFile(repo, false, refPath);
+        const fullPath = TrakRepository.repoFile(repo, false, refPath);
         if (!fullPath || !FileSystem.exists(fullPath))
             return null;
         
@@ -284,5 +144,146 @@ export class TrakRefs {
     
         const refPath = parts[1].trim();
         return refPath !== "" ? refPath : null;
+    }
+}
+
+class SymRef {
+    constructor(public readonly path: string) {}
+
+    isHead(): boolean {
+        return this.path === "HEAD";
+    }
+
+    async readOid(repo: TrakRepository): Promise<string | null> {
+        return await TRefs.readRef(repo, this.path);
+    }
+}
+
+export class TrakRemotes {
+    static readonly DEFAULT_REMOTE = "origin";
+
+    static async add(repo: TrakRepository, name: string, url: string, branches: string[]) {
+        branches = branches.length === 0 ? ["*"] : branches;
+        const cfg = await getConfig('local');
+
+        if (cfg.get("remote", name, "url")) {
+            //@config.save might be needed
+            throw new Error(`remote ${ name } already exists.`);
+        }
+
+        cfg.set("remote", name, url, "url");
+
+        for (const branch of branches) {
+            const source = (TrakRepository.repoFile(repo, false, "refs", "heads", branch))!;
+            const target = (TrakRepository.repoFile(repo, false, "refs", "remotes", name, branch))!;
+            const spec = new Refspec(source, target, true);
+            cfg.add("remote", name, spec.toString(), "fetch");
+        }
+
+        await setConfig('local', cfg.toString());
+    }
+
+    static async remove(name: string) {
+        const cfg = await getConfig('local');
+
+        if (!cfg.removeSection(name)) {
+            throw new Error(`No such remote: ${ name }`);
+        }
+
+        await setConfig('local', cfg.toString());
+    }
+
+    static async listRemotes(): Promise<string[]> {
+        const cfg = await getConfig('local');
+        const remoteSection = cfg.getSections("remote");
+        return remoteSection.map(section => section.subsection).filter(Boolean) as string[];
+    }
+
+    static async get(subSection: string): Promise<ConfigRemoteSection | null> {
+        const cfg = await getConfig('local');
+        if(!cfg.getSection("remote", subSection))
+            return null;
+
+        return new ConfigRemoteSection(cfg, subSection);
+    }
+}
+
+class ConfigRemoteSection {
+    constructor(private _config: TrakConfig, private _name: string) {}
+
+    get fetchUrl() {
+        return this._config.get("remote", "url", this._name);
+    }
+
+    get pushUrl() {
+        return this._config.get("remote", "pushUrl", this._name) || this.fetchUrl;
+    }
+
+    get fetchSpecs() {
+        return this._config.getAll("remote", "fetch", this._name);
+    }
+
+    get uploader() {
+        return this._config.get("remote", "uploadpack", this._name);
+    }
+}
+
+export class Refspec {
+    private static readonly REFSPEC_FORMAT = /^(\+?)([^:]+):([^:]+)$/;
+
+    constructor(private _source: string, private _target: string, private _forced: boolean) {}
+
+    toString() {
+        let spec = this._forced ? "+" : "";
+        return `${ spec }${ this._source }:${ this._target }`;
+    }
+
+    matchRefs(refs: string[]): Record<string, [string, boolean]> {
+        // If no wildcard, return single mapping
+        if (this._source.includes("*")) {
+            return { [this._target]: [this._source, this._forced] };
+        }
+
+        // Create pattern by replacing * with capture group
+        const patternStr = this._source.replace("*", "(.*)");
+        const pattern = new RegExp(`^${patternStr}$`);
+        
+        const mappings: Record<string, [string, boolean]> = {};
+
+        for (const ref of refs) {
+            const match = ref.match(pattern);
+            if (!match) continue;
+
+            const captured = match[1];
+            const dst = captured ? this._target.replace("*", captured) : this._target;
+            
+            mappings[dst] = [ref, this._forced];
+        }
+
+        return mappings;
+    }
+
+    static parse(spec: string): Refspec | null {
+        const match = spec.match(Refspec.REFSPEC_FORMAT);
+        
+        if (!match) {
+            return null;
+        }
+
+        const force = match[1] === "+";
+        const source = match[2];
+        const target = match[3];
+
+        return new Refspec(source, target, force);
+    }
+
+    static canonical(name: string) {}
+
+    static expand(specs: string[], refs: string[]): Record<string, [string, boolean]> {
+        const refSpecs = specs.map(spec => Refspec.parse(spec));
+        return refSpecs.reduce((accum, curr) => {
+            if (!curr) return accum;
+            return { ...accum, ...curr.matchRefs(refs) };
+        }, {} as Record<string, [string, boolean]>);
     }
 }

@@ -1,15 +1,37 @@
-import { TrakObjectsBase, TrakTree } from "../db/objects";
-import { TrakRepository } from "../repository";
 import { Terminal } from "../lib/standard";
+import { BaseCommand } from "../types";
 
-export async function lsTree(treeHash: string) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
+interface LsTreeArgs {
+    hash: string;
+    recursive?: boolean;
+}
 
-    const tree = (await TrakObjectsBase.readObject(repo, treeHash)) as TrakTree;
-    for (const { mode, name, oid } of tree.entries) {
-        const type = mode.startsWith("100") ? "blob" : "tree";
-        Terminal.println(`${ mode } ${ type } ${ oid } ${ name }`);
+export class LsTree extends BaseCommand<LsTreeArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'ls-tree', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async execute(): Promise<void> {
+        await this._traverse(this._args.hash)
+    }
+
+    private async _traverse(treeHash: string, prefix: string = "", recursive: boolean = false) {
+        const tree = await this._repo!.objects.readTreeObject(treeHash);
+        for (const { mode, name, oid } of tree.entries) {
+            const type = mode.startsWith("100") ? "blob" : "tree";
+            if (type === "tree" && recursive) {
+                await this._traverse(oid, `${ prefix }${ name }/`, true);
+            } else {
+                Terminal.println(`${ mode } ${ type } ${ oid } ${ name }`);
+            }
+        }
     }
 }

@@ -1,12 +1,12 @@
-import { getConfig } from "../db/config";
-import { TrakObject, TrakObjectsBase } from "../db/objects";
+import { getConfig } from "../repo/config";
+import { TObject, TObjects } from "../repo/objects";
 import type { TrakRepository } from "../repository";
 import { PackReader, PackStreamReader, PackWriter } from "./pack";
 import type { Protocol } from "./protocol";
 
 export async function sendPackedObjects(repo: TrakRepository, conn: Protocol | undefined, revs: string[]) {
     const revOptions = { objects: true, missing: true };
-    const revList: TrakObject[] = [];
+    const revList: TObject[] = [];
     const cfg = await getConfig('local');
     const packCompression = cfg.get("pack", "compression") || cfg.get("core", "compression");
     const writerOptions = { compression: packCompression ? parseInt(packCompression) : undefined }
@@ -21,8 +21,8 @@ export async function recvPackedObjects(repo: TrakRepository, conn: Protocol | u
 
     for (let i = 0; i < reader.count; i++) {
         const [record, _] = await stream.capture(reader.readRecord);
-        const obj = new TrakObject(record.type, record.data);
-        await TrakObjectsBase.writeObject(obj, repo);
+        const obj = new TObject(record.type, record.data);
+        await TObjects.writeObject(obj, repo);
     }
 
     stream.verifyChecksum();

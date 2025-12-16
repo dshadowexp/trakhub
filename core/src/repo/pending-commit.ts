@@ -3,7 +3,7 @@ import { FileSystem } from "../lib/standard";
 
 export class PendingCommit {
     static async message(repo: TrakRepository) {
-        const messagePath = await TrakRepository.repoFile(repo, false, "MERGE_MSG");
+        const messagePath = TrakRepository.repoFile(repo, false, "MERGE_MSG");
         if (!messagePath)
             throw new Error(`fatal: There is no merge in progress (${ 'name' } missing)`);
 
@@ -11,7 +11,7 @@ export class PendingCommit {
     }
 
     static async oid(repo: TrakRepository) {
-        const headPath = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
+        const headPath = TrakRepository.repoFile(repo, false, "MERGE_HEAD");
         if (!headPath)
             throw new Error("fatal: Not a merge");
 
@@ -20,8 +20,8 @@ export class PendingCommit {
 
 
     static async start(repo: TrakRepository, oid: string, message: string) {
-        const headPath = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
-        const messagePath = await TrakRepository.repoFile(repo, false, "MERGE_MSG");
+        const headPath = TrakRepository.repoFile(repo, false, "MERGE_HEAD");
+        const messagePath = TrakRepository.repoFile(repo, false, "MERGE_MSG");
 
         if (!headPath || !messagePath)
             throw new Error("fatal: Not a merge");
@@ -36,8 +36,8 @@ export class PendingCommit {
     }
 
     static async clear(repo: TrakRepository) {
-        const headPath = await TrakRepository.repoFile(repo, false, "MERGE_HEAD");
-        const messagePath = await TrakRepository.repoFile(repo, false, "MERGE_MSG");
+        const headPath = TrakRepository.repoFile(repo, false, "MERGE_HEAD");
+        const messagePath = TrakRepository.repoFile(repo, false, "MERGE_MSG");
 
         if (!headPath || !messagePath)
             return;

@@ -1,49 +1,59 @@
-import { resolve, join } from "path";
-import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
-import { FileSystem } from "../lib/standard";
-import { makePathsAbsolute } from "./-shared";
+import { BaseCommand } from "../types";
 
 type RmArgs = {
+    paths: string[],
     delete?: boolean
     skipMissing?: boolean
     force?: boolean
+    recursive?: boolean
 }
 
-export async function rm(paths: string[], options: RmArgs = {}) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
+export class Rm extends BaseCommand<RmArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'rm', 
+            'removes paths from the index, and optionally from the working tree',
+            [
+                { name: 'paths', type: String, multiple: true, defaultOption: true },
+                { name: 'delete', alias: 'D', type: Boolean },
+                { name: 'skipMissing', alias: 'n', type: Boolean },
+                { name: 'force', alias: 'f', type: Boolean },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
 
-    // Make paths absolute
-    const absolutePaths = makePathsAbsolute(paths, repo.workTree);
+    async execute(): Promise<void> {
+        // Make paths absolute
+        const paths = new Set([...this._args.paths]);
 
-    // Load entries into the index
-    await TrakIndex.load(repo);
-    // The list of entries to *keep*, which we will write back to the
-    const remove: string[] = [];
-
-    for (const entryPath of TrakIndex.getFilePaths()) {
-        const fullPath = join(repo.workTree, entryPath);
-        if (absolutePaths.has(fullPath)) {
-            remove.push(fullPath);
-            absolutePaths.delete(fullPath);
-            TrakIndex.removeEntry(entryPath);
-        } else {
-            throw new Error(`pathspec ${ fullPath } did not match any files`)
+        // Load entries into the index
+        await this._repo!.index.load();
+        // The list of entries to *keep*, which we will write back to the
+        const remove: string[] = [];
+        
+        for (const entry of this._repo!.index.eachEntry()) {
+            if (paths.has(entry.path)) {
+                remove.push(entry.path);
+                paths.delete(entry.path);
+                this._repo!.index.remove(entry.path);
+            } else {
+                throw new Error(`pathspec ${ entry.path } did not match any files`)
+            }
         }
-    }
 
-    // If abspaths is empty, it means some paths weren't in the index.
-    if (absolutePaths.size > 0 && !options.skipMissing) {
-        throw new Error(`Cannot remove paths not in the index: ${ absolutePaths }`);
-    }
+        // If abspaths is empty, it means some paths weren't in the index.
+        if (paths.size > 0 && !this._args.skipMissing) {
+            throw new Error(`Cannot remove paths not in the index: ${ paths }`);
+        }
 
-    // Physically delete paths from filesystem.
-    if (options.delete) {
-        await Promise.all(remove.map(path => FileSystem.removeFile(path)));
-    }
+        // Physically delete paths from filesystem.
+        if (this._args.delete) {
+            await Promise.all(remove.map(path => this._repo?.workspace.removeFile(path)));
+        }
 
-    // Write it back
-    await TrakIndex.save(repo);
+        // Write it back
+        await this._repo!.index.save();
+    }
 }

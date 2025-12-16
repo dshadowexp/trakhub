@@ -1,6 +1,6 @@
-import { TrakBlob, TrakCommit, TrakObjectsBase } from "../db/objects";
-import { TrakRefs } from "../db/refs"
-import { TrakIndex } from "../db/t-index";
+import { TBlob, TCommit, TObjects } from "../repo/objects";
+import { TRefs } from "../repo/refs"
+import { TIndex } from "../repo/t-index";
 import { migrate } from "../lib/migration";
 import { resolveStartPoint } from "../lib/revision";
 import { FileSystem, Terminal } from "../lib/standard";
@@ -10,7 +10,7 @@ import { type EntryInfo } from "../types";
 import { intersection, shortHash, union } from "../util";
 import { hasUncommittedChanges } from "./-shared";
 import { writeCommit } from "./commit";
-import { PendingCommit } from "../db/pending-commit";
+import { PendingCommit } from "../repo/pending-commit";
 
 interface ConflictInfo {
     path: string
@@ -36,7 +36,7 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
         throw new Error("fatal: You have not concluded your merge (MERGE_HEAD exists).\nPlease, commit your changes before you merge.");
 
     // # 2. RESOLVE BRANCH REFERENCES
-    const headCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const headCommit = await TRefs.getCurrentHeadCommit(repo);
     const mergeCommit = await resolveStartPoint(repo, sourceBranch);
 
     if (!headCommit)
@@ -46,7 +46,7 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
         throw new Error(`Branch ${sourceBranch} not found`);
 
     // Load the index for updates
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     // handle_continue if @options[:mode] == :continue
     if (options.continue) {
@@ -103,7 +103,7 @@ export async function merge(sourceBranch: string, options: MergeArgs = {}) {
 
 export async function resumeMerge(repo: TrakRepository, headCommit: string) {
     // handle_conflicted_index
-    if (TrakIndex.hasConflicts()) {
+    if (TIndex.hasConflicts()) {
         const message = "Committing is not possible because you have unmerged files";
         Terminal.printerr(`error: ${message}.`);
         // Terminal.printerr(CONFLICT_MESSAGE);
@@ -181,7 +181,7 @@ async function _getAllAncestors(repo: TrakRepository, commit: string): Promise<s
             continue;
 
         ancestors.add(current);
-        const commitObject = (await TrakObjectsBase.readObject(repo, current)) as TrakCommit;
+        const commitObject = (await TObjects.readObject(repo, current)) as TCommit;
 
         // Add parent(s) to queue
         queue.push(...commitObject.parentHashes);
@@ -208,7 +208,7 @@ async function _commonDistance(repo: TrakRepository, fromCommit: string, toCommi
             return Number.POSITIVE_INFINITY;
 
         visited.add(current);
-        const commitObject = (await TrakObjectsBase.readObject(repo, current)) as TrakCommit;
+        const commitObject = (await TObjects.readObject(repo, current)) as TCommit;
 
         if (commitObject.parentHashes.length === 0)
             return Number.POSITIVE_INFINITY;
@@ -237,10 +237,10 @@ async function _fastForwardMerge(repo: TrakRepository, headCommit: string, merge
     await migrate(repo, changes);
 
     // Write all updates to index
-    await TrakIndex.save(repo);
+    await TIndex.save(repo);
 
     // Set HEAD to point to the target branch
-    await TrakRefs.setCurrentHeadCommit(repo, mergeCommit);
+    await TRefs.setCurrentHeadCommit(repo, mergeCommit);
     
     // # 3. Show stats
     // show_merge_stats(current_tree, source_tree) //
@@ -315,7 +315,7 @@ export async function _threeWayMerge(repo: TrakRepository,
     await migrate(repo, Object.values(cleanDiff));
 
     // Write all updates to index
-    await TrakIndex.save(repo);
+    await TIndex.save(repo);
 
     // COMMIT MERGE
     const parentHashes = [headCommit, mergeCommit];
@@ -327,16 +327,16 @@ export async function _threeWayMerge(repo: TrakRepository,
     // Add conflicts to index
     conflicts.forEach((conflict) => {
         const { path, base, left, right } = conflict;
-        TrakIndex.addConflictSet(path, [base, left, right]);
+        TIndex.addConflictSet(path, [base, left, right]);
     });
 
     // Write untracked files
     for (const [path, entry] of untracked) {
-        const blob = await TrakObjectsBase.readObject(repo, entry.oid!);
+        const blob = await TObjects.readObject(repo, entry.oid!);
         await FileSystem.writeFile(path, blob!.content);
     }
 
-    if (TrakIndex.hasConflicts()) {
+    if (TIndex.hasConflicts()) {
         Terminal.println("Automatic merge failed; fix conflicts and then commit the result.");
         return; //exit 1
     }
@@ -393,8 +393,8 @@ async function mergeBlobs(repo: TrakRepository, baseOid: string | undefined, hea
     if (result !== undefined)
         return result;
 
-    const mergedBlob = new TrakBlob(Buffer.from(await mergeData(repo, headOid!, mergeOid!)));
-    await TrakObjectsBase.writeObject(mergedBlob, repo);
+    const mergedBlob = new TBlob(Buffer.from(await mergeData(repo, headOid!, mergeOid!)));
+    await TObjects.writeObject(mergedBlob, repo);
     return [false, mergedBlob.hash()];
 }
 
@@ -424,8 +424,8 @@ function merge3(base: string | undefined, left: string | undefined, right: strin
 }
 
 async function mergeData(repo: TrakRepository, headOid: string, mergeOid: string) {
-    const headBlob = await TrakObjectsBase.readObject(repo, headOid);
-    const mergeBlob = await TrakObjectsBase.readObject(repo, mergeOid);
+    const headBlob = await TObjects.readObject(repo, headOid);
+    const mergeBlob = await TObjects.readObject(repo, mergeOid);
 
     return [
         "<<<<<<< #{ @inputs.left_name }\n",

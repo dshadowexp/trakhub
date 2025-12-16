@@ -1,5 +1,5 @@
-import type { ConfigFileLevel } from "../db/config";
-import { getConfig, setConfig } from "../db/config"
+import type { ConfigFileLevel } from "../repo/config";
+import { getConfig, setConfig } from "../repo/config"
 import { TrakRepository } from "../repository";
 import { Terminal } from "../lib/standard";
 

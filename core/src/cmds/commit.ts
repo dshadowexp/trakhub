@@ -1,10 +1,10 @@
-import { TrakRefs } from "../db/refs";
+import { TRefs } from "../repo/refs";
 import { TrakRepository } from "../repository";
-import { TrakIndex } from "../db/t-index";
+import { TIndex } from "../repo/t-index";
 import { Terminal } from "../lib/standard";
 import { writeTree } from "./write-tree";
 import { commitTree } from "./commit-tree";
-import { PendingCommit } from "../db/pending-commit";
+import { PendingCommit } from "../repo/pending-commit";
 import { resumeMerge } from "./merge";
 
 export async function commit(message: string) {
@@ -13,12 +13,12 @@ export async function commit(message: string) {
         return;
 
     // Get parent commit
-    const headCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const headCommit = await TRefs.getCurrentHeadCommit(repo);
     // Create commit object
     const parentHashes = !headCommit ? [] : [ headCommit ];
 
     // Read the index (staging area)
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     // Check for merge in progress
     // handle_in_progress_merge if pending_commit.in_progress?
@@ -33,7 +33,7 @@ export async function commit(message: string) {
         return;
 
     // Get current branch
-    const currentBranchName = await TrakRefs.getCurrentBranch(repo);
+    const currentBranchName = await TRefs.getCurrentBranch(repo);
     const commitPointer = parentHashes.length > 0 ? currentBranchName : 'root-commit';
     Terminal.println(`[${ commitPointer } ${ commitHash }] ${ message }`);
 }
@@ -46,7 +46,7 @@ export async function commit(message: string) {
  * @returns 
  */
 export async function writeCommit(repo: TrakRepository, parents: string[], message: string): Promise<string | null> {
-    if (TrakIndex.entries.length === 0) {
+    if (TIndex.entries.length === 0) {
         Terminal.println('Nothing to commit, working tree clean - first');
         return null;
     }
@@ -62,7 +62,7 @@ export async function writeCommit(repo: TrakRepository, parents: string[], messa
         return null;
 
     // Update references - commit of current branch
-    await TrakRefs.setCurrentHeadCommit(repo, commitHash);
+    await TRefs.setCurrentHeadCommit(repo, commitHash);
 
     return commitHash;
 }

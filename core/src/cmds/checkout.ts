@@ -1,10 +1,10 @@
 import { Terminal } from "../lib/standard";
-import { TrakRefs } from "../db/refs";
+import { TRefs } from "../repo/refs";
 import { TrakRepository } from "../repository";
 import { resolveStartPoint } from "../lib/revision";
 import { treeDiff } from "../lib/tree-diff";
 import { migrate } from "../lib/migration";
-import { TrakIndex } from "../db/t-index";
+import { TIndex } from "../repo/t-index";
 import { createBranch } from "./branch";
 import { hasUncommittedChanges } from "./-shared";
 
@@ -19,12 +19,12 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
         return;
 
     // Resolve and extract files in current commit
-    const currentCommit = await TrakRefs.getCurrentHeadCommit(repo);
+    const currentCommit = await TRefs.getCurrentHeadCommit(repo);
     if (!currentCommit)
         throw new Error(`Current error at current commit at HEAD`);
 
     // Load the index for updates
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     // Check if changes are uncommitted
     if (await hasUncommittedChanges(repo)) {
@@ -54,10 +54,10 @@ export async function checkout(targetRef: string, options: CheckoutArgs) {
     await migrate(repo, changes);
 
     // Write all updates to index
-    await TrakIndex.save(repo);
+    await TIndex.save(repo);
 
     // Set HEAD to point to the target branch
-    await TrakRefs.setCurrentBranch(repo, targetRef);
+    await TRefs.setCurrentBranch(repo, targetRef);
 
     if (options.createBranch) {
         Terminal.println(`Switched to a new branch ${targetRef}`);

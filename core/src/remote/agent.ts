@@ -21,10 +21,10 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { Readable, Writable, PassThrough } from 'stream';
 import { Protocol } from "./protocol";
-import { TrakRefs } from '../db/refs';
+import { TRefs } from '../repo/refs';
 import type { TrakRepository } from '../repository';
 import { NULL_OID } from '../types';
-import { Singleton } from '../db/-shared';
+import { Singleton } from '../repo/-shared';
 
 const REF_LINE = /^([0-9a-f]+) (.*)$/
 
@@ -67,7 +67,7 @@ export class RemoteAgent {
     }
 
     async sendReferences() {
-        const refs = await TrakRefs.listAllRefs(this._repo);
+        const refs = await TRefs.listAllRefs(this._repo);
         let sent = false;
 
         const sortedRefs = refs.sort((a, b) => a.path.localeCompare(b.path));

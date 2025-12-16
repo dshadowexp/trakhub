@@ -1,10 +1,10 @@
 import { join } from "path";
 import { TrakRepository } from "../repository";
 import { NULL_OID, NULL_PATH, type TrakTreeEntry } from "../types";
-import { TrakBlob, TrakObjectsBase } from "../db/objects";
+import { TBlob, TObjects } from "../repo/objects";
 import { Terminal, FileSystem } from "../lib/standard";
-import { TrakIndex } from "../db/t-index";
-import { TrakRefs } from "../db/refs";
+import { TIndex } from "../repo/t-index";
+import { TRefs } from "../repo/refs";
 import { getTreeFilesFromCommit } from "./-shared";
 import { shortHash } from "../util";
 import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
@@ -38,7 +38,7 @@ export async function diff(options: DiffArgs = {}) {
         return;
 
     // Load index (Staging area)
-    await TrakIndex.load(repo);
+    await TIndex.load(repo);
 
     if (options.cached) {
         await _diffHeadIndex(repo);
@@ -105,7 +105,7 @@ async function _diffIndexWorkspace(repo: TrakRepository) {
  * @returns 
  */
 async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
-    const currentBranch = await TrakRefs.getCurrentBranch(repo); // Fetch head instead
+    const currentBranch = await TRefs.getCurrentBranch(repo); // Fetch head instead
     const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
         return { ...current, [value.name]: value }
     }, {});
@@ -119,8 +119,8 @@ async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
  * @returns 
  */
 async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
-    await TrakIndex.load(repo)
-    const entry = TrakIndex.getEntry(path);
+    await TIndex.load(repo)
+    const entry = TIndex.getEntry(path);
     if (!entry)
         throw new Error(`Entry not found for path ${ path }`);
 
@@ -134,7 +134,7 @@ async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
  */
 async function _fromFile(path: string): Promise<Target> {
     const fileContent = await FileSystem.readFile(path);
-    const blob = new TrakBlob(fileContent);
+    const blob = new TBlob(fileContent);
     const oid = blob.hash();
     const mode = FileSystem.mode(path);
     return {
@@ -166,7 +166,7 @@ function _fromNothing(path: string): Target {
  * @returns 
  */
 async function _fromEntry(repo: TrakRepository, entry: TrakTreeEntry): Promise<Target> {
-    const blob = await TrakObjectsBase.readObject(repo, entry.oid);
+    const blob = await TObjects.readObject(repo, entry.oid);
     if (!blob) 
         throw new Error(`Cannot read object fromEntry ${ entry.oid }`);
 

@@ -1,7 +1,7 @@
 import { createHash, type Hash } from "crypto";
 import { Readable, Writable } from "stream";
 import { createDeflate, createInflate, constants } from "zlib";
-import { TrakObject, TrakObjectsBase, TrakObjectType } from "../db/objects";
+import { TObject, TObjects, TObjectType } from "../repo/objects";
 import type { TrakRepository } from "../repository";
 
 export const HEADER_SIGNATURE = "PACK";
@@ -35,27 +35,27 @@ export class PackWriter {
         this._compression = options.compression || ZLIB_DEFAULT_COMPRESSION;
     }
 
-    async writeObjects(revList: TrakObject[]) {
+    async writeObjects(revList: TObject[]) {
         this._preparePackList(revList);
         this._writeHeader();
         await this._writeEntries();
         this._outPut.write(Buffer.from(this._hash.digest('hex')));
     }
 
-    _preparePackList(revList: TrakObject[]) {
+    _preparePackList(revList: TObject[]) {
         revList.forEach((object) => {
             this._addToPackList(object);
         });
     }
 
-    _addToPackList(object: TrakObject) {
+    _addToPackList(object: TObject) {
         switch(object.type) {
-            case TrakObjectType.COMMIT:
+            case TObjectType.COMMIT:
                 this._packList.push({ oid: object.hash(), type: PackFileObjectType.COMMIT });
                 break;
-            case TrakObjectType.TREE:
-            case TrakObjectType.BLOB:
-                const type = object.type === TrakObjectType.TREE ? PackFileObjectType.TREE : PackFileObjectType.BLOB;
+            case TObjectType.TREE:
+            case TObjectType.BLOB:
+                const type = object.type === TObjectType.TREE ? PackFileObjectType.TREE : PackFileObjectType.BLOB;
                 this._packList.push({ oid: object.hash(), type: type });
                 break;
             default:
@@ -76,11 +76,11 @@ export class PackWriter {
     }
 
     async _writeEntry(entry: PackEntry) {
-        const { type: typeStr, size, data } = await TrakObjectsBase.readRaw(this._repo, entry.oid);
+        const { type: typeStr, size, data } = await TObjects.readRaw(this._repo, entry.oid);
         const typeMap: { [key: string]: number } = {
-            [TrakObjectType.COMMIT]: PackFileObjectType.COMMIT,
-            [TrakObjectType.TREE]: PackFileObjectType.TREE,
-            [TrakObjectType.BLOB]: PackFileObjectType.BLOB,
+            [TObjectType.COMMIT]: PackFileObjectType.COMMIT,
+            [TObjectType.TREE]: PackFileObjectType.TREE,
+            [TObjectType.BLOB]: PackFileObjectType.BLOB,
         };
         const type = typeMap[typeStr];
         if (type === undefined) {
@@ -173,10 +173,10 @@ export class PackReader {
         const { type } = this._readRecordHeader();
         const data = await this._readZlibStream();
 
-        const typeMap: { [key: number]: TrakObjectType } = {
-            [PackFileObjectType.COMMIT]: TrakObjectType.COMMIT,
-            [PackFileObjectType.TREE]: TrakObjectType.TREE,
-            [PackFileObjectType.BLOB]: TrakObjectType.BLOB,
+        const typeMap: { [key: number]: TObjectType } = {
+            [PackFileObjectType.COMMIT]: TObjectType.COMMIT,
+            [PackFileObjectType.TREE]: TObjectType.TREE,
+            [PackFileObjectType.BLOB]: TObjectType.BLOB,
         };
         const typeStr = typeMap[type];
         if (typeStr === undefined) {

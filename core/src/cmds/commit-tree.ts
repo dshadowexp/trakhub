@@ -1,6 +1,6 @@
-import { getConfig } from "../db/config";
-import { TrakCommit, TrakObjectsBase } from "../db/objects";
-import { TrakRefs } from "../db/refs";
+import { getConfig } from "../repo/config";
+import { TCommit, TObjects } from "../repo/objects";
+import { TRefs } from "../repo/refs";
 import { Terminal } from "../lib/standard";
 import { TrakRepository } from "../repository";
 import { TrakAuthor } from "../types";
@@ -21,7 +21,7 @@ export async function commitTree(options: CommitTreeArgs, repo?: TrakRepository 
 
     // Verify no changes from computed hashes
     if (parents.length > 0) {
-        const parentCommitObject = (await TrakObjectsBase.readObject(repo, parents[0])) as TrakCommit;
+        const parentCommitObject = (await TObjects.readObject(repo, parents[0])) as TCommit;
 
         if (parentCommitObject.treeHash === treeHash) {
             Terminal.println('Nothing to commit, working tree clean');
@@ -37,11 +37,11 @@ export async function commitTree(options: CommitTreeArgs, repo?: TrakRepository 
     const committer = new TrakAuthor(name, email);
 
     // Create commit object
-    const commit = new TrakCommit(treeHash, parents, author, committer, message);
-    const commitHash = await TrakObjectsBase.writeObject(commit, repo);;
+    const commit = new TCommit(treeHash, parents, author, committer, message);
+    const commitHash = await TObjects.writeObject(commit, repo);;
 
     // Update references - commit of current branch
-    await TrakRefs.setCurrentHeadCommit(repo, commitHash);
+    await TRefs.setCurrentHeadCommit(repo, commitHash);
 
     return commit.hash();
 }

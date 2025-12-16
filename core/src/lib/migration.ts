@@ -1,11 +1,11 @@
 import { dirname, join } from "path";
 import { DiffAction, type DiffEntry } from "./tree-diff";
 import { FileSystem, Terminal } from "./standard";
-import { TrakBlob, TrakObjectsBase } from "../db/objects";
+import { TBlob, TObjects } from "../repo/objects";
 import type { TrakRepository } from "../repository";
 import { UnixFileModeEnum } from "../types";
 import { mkdir } from "fs/promises";
-import { TrakIndex } from "../db/t-index";
+import { TIndex } from "../repo/t-index";
 
 export async function migrate(repo: TrakRepository, changes: DiffEntry[]) {
     // Step 1: Check for conflicts
@@ -65,7 +65,7 @@ async function detectConflicts(changes: DiffEntry[], workingDirectory: string) {
  */
 async function isModified(path: string, expectedOid: string) {
     const fileData = await FileSystem.readFile(path);
-    const blob = new TrakBlob(fileData);
+    const blob = new TBlob(fileData);
     return blob.hash() !== expectedOid;
 }
 
@@ -117,7 +117,7 @@ async function deleteFromWorkspace(repo: TrakRepository, path: string) {
         // Remove file and all empty parent directories
         await FileSystem.removeFile(workingPath, repo.workTree);
         // Update Index
-        TrakIndex.removeEntry(path);
+        TIndex.removeEntry(path);
     } catch (error) {
         throw new Error(`Error deleting from workspace: ${error}`);
     }
@@ -157,11 +157,11 @@ async function addToWorkingDirectory(repo: TrakRepository, path: string, oid: st
 async function updateFile(repo: TrakRepository, path: string, oid: string, mode: string) {
     try {
         console.log(`+>>>>>Updating file: ${ path }`);
-        const blob = await TrakObjectsBase.readObject(repo, oid);
+        const blob = await TObjects.readObject(repo, oid);
         await FileSystem.writeFile(join(repo.workTree, path), blob!.content);
         //FileSystem.setMode(path, mode);
         // Update index
-        TrakIndex.addEntry(path, oid);
+        TIndex.addEntry(path, oid);
     } catch (error) {
         throw new Error(`Error updating file: ${error}`);
     }

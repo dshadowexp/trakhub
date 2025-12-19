@@ -2,7 +2,7 @@ import { createHash, type Hash } from "crypto";
 import { Readable, Writable } from "stream";
 import { createDeflate, createInflate, constants } from "zlib";
 import { TObject, TObjects, TObjectType } from "../repo/objects";
-import type { TrakRepository } from "../repository";
+import type { TRepository } from "../repo/repository";
 
 export const HEADER_SIGNATURE = "PACK";
 const HEADER_SIZE = 12;
@@ -29,7 +29,7 @@ export class PackWriter {
     private _hash: Hash;
     private _compression: number;
 
-    constructor(private _repo: TrakRepository, private _outPut: Writable, options: PackWriterOptions = {}) {
+    constructor(private _repo: TRepository, private _outPut: Writable, options: PackWriterOptions = {}) {
         this._packList = []
         this._hash = createHash('sha1');
         this._compression = options.compression || ZLIB_DEFAULT_COMPRESSION;
@@ -51,12 +51,12 @@ export class PackWriter {
     _addToPackList(object: TObject) {
         switch(object.type) {
             case TObjectType.COMMIT:
-                this._packList.push({ oid: object.hash(), type: PackFileObjectType.COMMIT });
+                this._packList.push({ oid: object.hash!, type: PackFileObjectType.COMMIT });
                 break;
             case TObjectType.TREE:
             case TObjectType.BLOB:
                 const type = object.type === TObjectType.TREE ? PackFileObjectType.TREE : PackFileObjectType.BLOB;
-                this._packList.push({ oid: object.hash(), type: type });
+                this._packList.push({ oid: object.hash!, type: type });
                 break;
             default:
                 throw new Error(`Unknown object type for packing: ${object.type}`); 
@@ -76,7 +76,7 @@ export class PackWriter {
     }
 
     async _writeEntry(entry: PackEntry) {
-        const { type: typeStr, size, data } = await TObjects.readRaw(this._repo, entry.oid);
+        const { type: typeStr, size, data } = await this._repo.objects.loadRaw(entry.oid);
         const typeMap: { [key: string]: number } = {
             [TObjectType.COMMIT]: PackFileObjectType.COMMIT,
             [TObjectType.TREE]: PackFileObjectType.TREE,
@@ -140,7 +140,7 @@ export class PackReader {
     private _count: number;
     private _stream: PackStreamReader;
 
-    constructor(private _repo: TrakRepository, private _inPut: PackStreamReader) {
+    constructor(private _repo: TRepository, private _inPut: PackStreamReader) {
         this._count = 0;
         this._stream = _inPut;
     }

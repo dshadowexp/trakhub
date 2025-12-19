@@ -1,9 +1,9 @@
-import { chmodSync, createReadStream, createWriteStream, Dirent, existsSync, statSync } from "fs";
+import { chmodSync, createReadStream, createWriteStream, existsSync, Stats, statSync } from "fs";
 import { UnixFileModeEnum } from "../types";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
 import { unlink } from "fs/promises";
-import { dirname, join, resolve } from "path";
+import { dirname, join, relative } from "path";
 import { readdir } from "fs/promises";
 import { rmdir } from "fs/promises";
 
@@ -23,7 +23,7 @@ export class Workspace {
      * @returns 
      */
     exists(path: string) {
-        return existsSync(this.resolve(path));
+        return existsSync(path);
     }
 
     /**
@@ -32,7 +32,15 @@ export class Workspace {
      * @returns 
      */
     stats(path: string) {
-        return statSync(this.resolve(path));
+        try {
+            return statSync(path);
+        } catch (err: any) {
+            console.log(err); 
+            // if (err.code === 'ENOENT') {
+            //     return null;
+            // }
+            throw err;
+        }
     }
 
     /**
@@ -59,15 +67,8 @@ export class Workspace {
      * @returns 
      */
     isDirectory(path: string) {
-        try {
-            const stats = this.stats(path);
-            return stats.isDirectory();
-        } catch (err: any) {
-            if (err.code === 'ENOENT') {
-                return false;
-            }
-            throw err;
-        }
+        const stats = this.stats(path);
+        return stats.isDirectory();
     }
 
     /**
@@ -140,54 +141,34 @@ export class Workspace {
      * @param directory 
      * @returns 
      */
-    async listFiles(directory: string) {
-        const files: string[] = [];
-        const stack: string[][] = [ [directory, ''] ];
-
+    async listFiles(directory: string | undefined): Promise<[string, Stats][]> {
+        const files: [string, Stats][] = [];
+        const stack: Array<[string, string]> = [[join(this._dirname, directory || ""), ""]];
+      
         while (stack.length > 0) {
-            const [currentDirectory, parent] = stack.pop()!;
-
-            for (const dirEntry of (await this.readDirectory(currentDirectory, true) as Dirent[])) {
-                const fullPath = join(parent, dirEntry.name);
-
-                if (dirEntry.isFile()) {
-                    files.push(fullPath);
-                } else if (dirEntry.isDirectory()) {
-                    stack.push([dirEntry.name, fullPath])
+            const [currentPath, parent] = stack.pop()!;
+            const stats = this.stats(currentPath);
+        
+            if (stats.isDirectory()) {
+                const entries = await readdir(currentPath);
+            
+                for (const name of entries) {
+                    if (ignoreSet.has(name)) continue;
+            
+                    const fullPath = join(currentPath, name);
+                    const relPath = parent ? join(parent, name) : name;
+            
+                    stack.push([fullPath, relPath]);
                 }
-            }
-        }
-
-        return files;
-    }
-
-    /**
-     * 
-     * @param path 
-     * @param withFileTypes 
-     * @returns 
-     */
-    async readDirectory(path: string, withFileTypes: boolean = false ) {
-        if (withFileTypes)
-            return (await readdir(path, { withFileTypes: true })).filter((element) => !ignoreSet.has(element.name));
-        else
-            return (await readdir(path)).filter((element) => !ignoreSet.has(element));
-    }
-
-    makePathsAbsolute(paths: string[]): Set<string> {
-        // Make paths absolute
-        const absolutePaths = new Set<string>();
-
-        for (const path of paths) {
-            // Resolve path argument
-            const absolutePath = resolve(path);
-            if (absolutePath.startsWith(this._dirname)) {
-                absolutePaths.add(absolutePath);
+            } else if (stats.isFile()) {
+                files.push([relative(this._dirname, currentPath), stats]);
             } else {
-                throw new Error(`Cannot remove paths outside of worktree: ${ path }`);
+                throw new Error(
+                    `pathspec '${currentPath}' did not match any files`
+                );
             }
         }
-    
-        return absolutePaths;
+      
+        return files;
     }
 }

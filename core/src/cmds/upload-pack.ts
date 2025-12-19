@@ -2,10 +2,29 @@ import { RemoteAgent } from "../remote/agent";
 import type { Protocol } from "../remote/protocol";
 import { sendPackedObjects } from "../remote/util";
 import { TrakRepository } from "../repository";
+import { BaseCommand } from "./-base";
 
 interface UploadPackArgs {
     force?: boolean
     uploadPack?: string
+}
+
+export class Remote extends BaseCommand<UploadPackArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'remote', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async run(): Promise<void> {
+
+    }
 }
 
 export async function uploadPack(args: UploadPackArgs) {

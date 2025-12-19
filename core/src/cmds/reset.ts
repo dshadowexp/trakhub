@@ -1,80 +1,24 @@
-import { TRefs } from "../repo/refs";
-import { TIndex } from "../repo/t-index";
-import { resolveStartPoint } from "../lib/revision";
-import { FileSystem } from "../lib/standard";
-import { TrakRepository } from "../repository";
-import type { TrakTreeEntry } from "../types";
-import { getTreeFilesFromCommit, makePathsAbsolute } from "./-shared";
+import { BaseCommand } from "./-base";
 
 interface ResetArgs {
-    paths: string[]
-    startPoint?: string
-    mode?: 'soft' | 'mixed' | 'hard'
+    hash: string;
+    recursive?: boolean;
 }
 
-export async function reset(options: ResetArgs = { paths: [], mode: 'mixed' }) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-
-    // Make paths absolute
-    const absolutePaths = makePathsAbsolute(options.paths, repo.workTree);
-
-    // Get parent commit
-    let commitHash: string | null;
-    if (options.startPoint) {
-        commitHash = await resolveStartPoint(repo, options.startPoint);
-    } else {
-        commitHash = await TRefs.getCurrentHeadCommit(repo);
+export class Reset extends BaseCommand<ResetArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'reset', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
     }
 
-    if (!commitHash)
-        throw new Error(`No commit found for ${ options.startPoint }`);
+    async run(): Promise<void> {
 
-    const resetFiles = async () => {
-        if (options.mode === 'soft') return;
-        if (options.mode === 'hard') {
-            const headCommitHash = await TRefs.getCurrentHeadCommit(repo);
-            const headTreeEntries = await getTreeFilesFromCommit(repo, commitHash!);
-            
-            return;
-        }
-
-        // Load tree list
-        const treeEntries = await getTreeFilesFromCommit(repo, commitHash!);
-    
-        if (absolutePaths.size == 0) {
-            TIndex.clear();
-            resetPath('', []);
-        } else {
-            absolutePaths.forEach((absPath) => {
-                resetPath(absPath, treeEntries.filter((entry) => entry.name.startsWith(absPath)));
-            })
-        }
-    }
-    
-    const resetPath = (path: string, listing: TrakTreeEntry[]) => {
-        TIndex.removeEntry(path);
-        listing.map(entry => TIndex.addFromDb(path, entry));
-    }
-
-    const resetPathHard = async (path: string, entry: TrakTreeEntry) => {
-        TIndex.removeEntry(path);
-        await FileSystem.removeFile(path, repo.workTree);
-    }
-
-    // Load entries into the index
-    await TIndex.load(repo);
-
-    // Reset files
-    await resetFiles();
-
-    // Write updates to index
-    await TIndex.save(repo);
-
-    // Update HEAD to the selected commit if no file paths were given
-    if (options.paths.length === 0) {
-        await TRefs.setCurrentHeadCommit(repo, commitHash!);
     }
 }
-

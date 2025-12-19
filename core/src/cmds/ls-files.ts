@@ -1,7 +1,6 @@
-import { TIndex } from "../repo/t-index";
+import { BaseCommand } from "./-base";
 import { Terminal } from "../lib/standard";
-import { TrakRepository } from "../repository";
-import { BaseCommand } from "../types";
+import { TIndex } from "../repo/t-index";
 
 interface LsFilesArgs {
     verbose?: boolean
@@ -21,18 +20,18 @@ export class LsFiles extends BaseCommand<LsFilesArgs> {
         )
     }
 
-    async execute(): Promise<void> {
+    async run(): Promise<void> {
         // Load index file
         await this._repo!.index.load();
 
         if (this._args.verbose)
-            Terminal.println(`Index file format v${TIndex.version}, containing ${Object.keys(TIndex.entries).length} entries.`)
+            Terminal.println(`Index file format v${TIndex.VERSION}, containing ${ this._repo!.index.size } entries.`)
         
         for (const entry of this._repo!.index.eachEntry()) {
             let info = entry.path;
 
             if (this._args.stage) {
-                info = `${ entry.mode } ${ entry.sha1.toString("hex") } ${ entry.stage } ${ info }`;
+                info = `${ entry.mode } ${ entry.hash } ${ entry.stage } ${ info }`;
             } else if (this._args.verbose) {
 
             }

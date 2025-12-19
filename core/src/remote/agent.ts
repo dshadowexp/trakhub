@@ -21,10 +21,9 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { Readable, Writable, PassThrough } from 'stream';
 import { Protocol } from "./protocol";
-import { TRefs } from '../repo/refs';
-import type { TrakRepository } from '../repository';
 import { NULL_OID } from '../types';
 import { Singleton } from '../repo/-shared';
+import type { TRepository } from '../repo/repository';
 
 const REF_LINE = /^([0-9a-f]+) (.*)$/
 
@@ -36,7 +35,7 @@ export class RemoteAgent {
     private _process?: ChildProcess;
     private _remoteRefs: Record<string, string> = {};
 
-    constructor(private _repo: TrakRepository,  input?: Readable, output?: Writable) {
+    constructor(private _repo: TRepository,  input?: Readable, output?: Writable) {
         this._input = input || new PassThrough();
         this._output = output || new PassThrough();
     }
@@ -67,13 +66,13 @@ export class RemoteAgent {
     }
 
     async sendReferences() {
-        const refs = await TRefs.listAllRefs(this._repo);
+        const refs = await this._repo.refs.listAllRefs();
         let sent = false;
 
         const sortedRefs = refs.sort((a, b) => a.path.localeCompare(b.path));
 
         for (const symref of sortedRefs) {
-            const oid = await symref.readOid(this._repo);
+            const oid = await symref.readHash();
             if (!oid) continue;
 
             this._conn?.sendPktLine(`${ oid.toLowerCase() } ${ symref.path }`);

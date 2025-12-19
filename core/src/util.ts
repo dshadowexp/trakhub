@@ -56,6 +56,3 @@ export function isAbbreviatedSha(ref: string): boolean {
     return /^[0-9a-f]+$/i.test(ref);
 }
 
-export function shortHash(sha: string) {
-    return sha.slice(0, 7);
-}

@@ -1,5 +1,5 @@
-import { Terminal } from "../lib/standard";
-import { BaseCommand } from "../types";
+import { BaseCommand } from "./-base";
+import { showTree } from "./-shared";
 
 interface LsTreeArgs {
     hash: string;
@@ -19,19 +19,7 @@ export class LsTree extends BaseCommand<LsTreeArgs> {
         )
     }
 
-    async execute(): Promise<void> {
-        await this._traverse(this._args.hash)
-    }
-
-    private async _traverse(treeHash: string, prefix: string = "", recursive: boolean = false) {
-        const tree = await this._repo!.objects.readTreeObject(treeHash);
-        for (const { mode, name, oid } of tree.entries) {
-            const type = mode.startsWith("100") ? "blob" : "tree";
-            if (type === "tree" && recursive) {
-                await this._traverse(oid, `${ prefix }${ name }/`, true);
-            } else {
-                Terminal.println(`${ mode } ${ type } ${ oid } ${ name }`);
-            }
-        }
+    async run(): Promise<void> {
+        await showTree(this._repo!, this._args.hash, this._args.recursive)
     }
 }

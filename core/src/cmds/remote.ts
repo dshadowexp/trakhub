@@ -1,12 +1,31 @@
-import { TrakRemotes } from "../repo/refs";
+import { TRemotes } from "../repo/refs";
 import { Terminal } from "../lib/standard";
 import { TrakRepository } from "../repository";
+import { BaseCommand } from "./-base";
 
 interface RemoteArgs {
     verbose?: boolean
     subCommand?: 'add' | 'remove'
     name?: string
     url?: string
+}
+
+export class Remote extends BaseCommand<RemoteArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'remote', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async run(): Promise<void> {
+
+    }
 }
 
 export async function remote(args: RemoteArgs) {
@@ -31,7 +50,7 @@ export async function remote(args: RemoteArgs) {
 
 async function addRemote(repo: TrakRepository, name: string, url: string) {
     try {
-        await TrakRemotes.add(repo, name, url, []);
+        await TRemotes.add(repo, name, url, []);
         process.exit(0);
     } catch (error) {
         Terminal.printerr(`"fatal: ${ (error as Error).message }`);
@@ -41,7 +60,7 @@ async function addRemote(repo: TrakRepository, name: string, url: string) {
 
 async function removeRemote(name: string) {
     try {
-        await TrakRemotes.remove(name);
+        await TRemotes.remove(name);
         process.exit(0);
     } catch (error) {
         Terminal.printerr(`"fatal: ${ (error as Error).message }`);
@@ -50,7 +69,7 @@ async function removeRemote(name: string) {
 }
 
 async function listRemotes(verbose: boolean | undefined) {
-    const remotes = await TrakRemotes.listRemotes();
+    const remotes = await TRemotes.listRemotes();
     await Promise.all(remotes.map(remote => _listRemote(remote, verbose)));
     process.exit(0);
 }
@@ -61,7 +80,7 @@ async function _listRemote(name: string, verbose: boolean | undefined) {
         return;
     }
 
-    const remote = await TrakRemotes.get(name);
+    const remote = await TRemotes.get(name);
     if (!remote) return;
 
     Terminal.println(`${ name }\t${ remote.fetchUrl } (fetch)`);

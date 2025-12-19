@@ -2,6 +2,7 @@ import type { ConfigFileLevel } from "../repo/config";
 import { getConfig, setConfig } from "../repo/config"
 import { TrakRepository } from "../repository";
 import { Terminal } from "../lib/standard";
+import { BaseCommand } from "./-base";
 
 interface ConfigArgs {
     level?: ConfigFileLevel,
@@ -17,6 +18,26 @@ interface ConfigArgs {
     get?: boolean,
     getAll?: boolean
 }
+
+
+export class Config extends BaseCommand<ConfigArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'config', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async run(): Promise<void> {
+
+    }
+}
+
 
 export async function config(args: ConfigArgs) {
     const repo = await TrakRepository.repoFind();

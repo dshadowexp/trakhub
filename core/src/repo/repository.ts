@@ -5,6 +5,8 @@ import { TIndex } from "./t-index";
 import { TRefs } from "./refs";
 import { FileSystem } from "../lib/standard";
 import { Workspace } from "./workspace";
+import { TConfig } from "./config";
+import { TStatus } from "./status";
 
 export class TRepository {
     private _trakDir: string;
@@ -12,7 +14,8 @@ export class TRepository {
     private _objects: TObjects | undefined;
     private _index: TIndex | undefined;
     private _refs: TRefs | undefined;
-    private _config: undefined;
+    private _status: TStatus | undefined;
+    private _config: TConfig | undefined;
 
     constructor(private _workTree: string) {
         this._trakDir = join(this._workTree, ".trak");
@@ -27,11 +30,19 @@ export class TRepository {
     }
 
     get refs(): TRefs {
-        return this._refs ??= new TRefs(join(this._trakDir, "refs"));
+        return this._refs ??= new TRefs(join(this._trakDir));
+    }
+
+    get status(): TStatus {
+        return this._status ??= new TStatus(this);
     }
 
     get workspace(): Workspace {
         return this._workspace ??= new Workspace(this._workTree);
+    }
+
+    get config(): TConfig {
+        return this._config ??= new TConfig();
     }
 
     static repoFind(path: string = '.', required: boolean = true): TRepository | null {

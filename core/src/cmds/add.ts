@@ -1,6 +1,6 @@
-import { join } from "path";
+import { BaseCommand } from "./-base";
 import { TBlob } from "../repo/objects";
-import { BaseCommand } from "../types";
+import { Terminal } from "../lib/standard";
 
 interface AddArgs {
     paths: string[]
@@ -15,65 +15,34 @@ export class Add extends BaseCommand<AddArgs> {
                 { name: 'paths', type: String, multiple: true, defaultOption: true },
             ],
             args
-        )
+        );
     }
 
-    async execute(): Promise<void> {
-        // Load index
-        await this._repo!.index.load();
+    async run(): Promise<void> { 
+        try {
+            // Get list of files from paths
+            const paths = (await Promise.all(
+                this._args.paths.map(path =>
+                    this._repo!.workspace.listFiles(path)
+                )
+            )).flat();
 
-        for (const path of this._args.paths) {
-            // Ensure path exists
-            if (!this._repo!.workspace.exists(path))
-                throw new Error(`Path ${path} not found`);
-
-            if (this._repo!.workspace.isFile(path)) {
-                // Add file to object
-                await this._addFile(path);
-            } else if (this._repo!.workspace.isDirectory(path)) {
-                // Add files in directory
-                await this._addDirectory(path);
-            } else {
-                throw new Error(`${path} is neither a file nor directory`);
-            }
+            await this._repo!.index.load();
+            await Promise.all(paths.map(([path, _]) => this._addToIndex(path)));
+            await this._repo!.index.save();
+        } catch (error: any) {
+           Terminal.printerr(`${ error.message }`);
         }
-
-        // Write all entries to index file
-        await this._repo!.index.save();
     } 
 
-    private async _addDirectory(dirPath: string) {
-        // Load index file json contents
-        // const indexJSON = await TrakIndex.loadIndex(repo);
-        const stack: string[] = [dirPath];
-    
-        while (stack.length > 0) {
-            // Get current directory from stack
-            const currentDir = stack.pop()!;
-            // Read entries from directory
-            const entries = await this._repo!.workspace.readDirectory(currentDir) as string[];
-    
-            // Populate stack and process file entries
-            for (const entry of entries) {
-                // Resolve full path for directory entry
-                const fullPath = join(currentDir, entry);
-    
-                if (this._repo!.workspace.isDirectory(fullPath)) {
-                    // Push to stack if path is a directory
-                    stack.push(fullPath);
-                } else {
-                    await this._addFile(fullPath);
-                }
-            }
-        }
-    }
-
-    private async _addFile(filePath: string) {
+    private async _addToIndex(filePath: string) {
         // Read the file content
         const fileContent = await this._repo!.workspace.readFile(filePath);
         // Create and Store blob object in database
-        const blobHash = await this._repo!.objects.writeObject(new TBlob(fileContent), true);
+        const blobHash = await this._repo!.objects.store(new TBlob(fileContent));
+        // Get stats
+        const stats = this._repo!.workspace.stats(filePath);
         // Add entry to Index entries
-        this._repo!.index.add(filePath, blobHash, this._repo!.workspace.stats(filePath));
+        this._repo!.index.add(filePath, blobHash, stats);
     }
 }

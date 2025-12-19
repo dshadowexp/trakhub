@@ -1,6 +1,6 @@
+import { BaseCommand } from "./-base";
 import { Terminal } from "../lib/standard";
-import { TBlob, TCommit, TObject, TObjects, TObjectType, TTree } from "../repo/objects";
-import { BaseCommand } from "../types";
+import { TObjectType } from "../repo/objects";
 
 interface HashObjectArgs {
     path: string;
@@ -22,11 +22,14 @@ export class HashObject extends BaseCommand<HashObjectArgs> {
         )
     }
 
-    async execute(): Promise<void> {
+    async run(): Promise<void> {
         const type = this._args.type as TObjectType || TObjectType.BLOB;
         const data = await this._repo!.workspace.readFile(this._args.path);
-        const baseObject = new TObject(type, data);
-        const hash = await this._repo!.objects.writeObject(baseObject, this._args.write);
+        const hash = this._repo!.objects.hashContent(data);
+
+        // if (this._args.write)
+        //     await this._repo!.objects.writeObject(hash)
+                
         Terminal.println(hash);
     }
 }

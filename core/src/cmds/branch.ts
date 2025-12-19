@@ -1,18 +1,13 @@
-import { TRefs } from "../repo/refs";
-import { FileSystem, Terminal } from "../lib/standard";
-import { TrakRepository } from "../repository";
-import { TCommit, TObjects } from "../repo/objects";
-import { shortHash } from "../util";
-import { resolveStartPoint } from "../lib/revision";
-import { BaseCommand } from "../types";
+import { BaseCommand } from "./-base";
+import { SymRef } from "../repo/refs";
+import { Terminal } from "../lib/standard";
+import { Revision } from "../lib/revision";
 
 interface BranchArgs { 
-    list?: boolean,
+    branches?: string[],
     verbose?: boolean, 
     delete?: boolean,
-    forceDelete?: boolean, 
-    create?: boolean,
-    startPoint?: string
+    force?: boolean,
 }
 
 export class Branch extends BaseCommand<BranchArgs> {
@@ -23,228 +18,137 @@ export class Branch extends BaseCommand<BranchArgs> {
             [
                 { name: 'branches', type: String, multiple: true, defaultOption: true },
                 { name: 'verbose', alias: 'v', type: Boolean },
-                { name: 'delete', alias: 'd', type: Boolean },
-                { name: 'forceDelete', alias: 'D', type: Boolean },
+                { name: 'delete', alias: 'D', type: Boolean },
+                { name: 'force', alias: 'f', type: Boolean },
             ],
             args
         )
     }
 
-    async execute(): Promise<void> {
-        await super.execute();
-        console.log(this._args);
+    async run(): Promise<void> {
+        if (this._args.delete) {
+            await this._deleteBranches();
+        } else if (Object.keys(this._args).length === 0) {
+            await this._listBranches();
+        }  else {
+            await this._createBranch();
+        }
     } 
-}
 
+    private async _listBranches() {
+        const current = await this._repo!.refs.currentRef();
+        const branches = await this._repo!.refs.listBranches();
+        branches.sort((a, b) => a.path.localeCompare(b.path));
+        const maxWidth = 10;
 
+        for (const ref of branches) {
+            const info = this._formatRef(ref, current);
+            const extended = await this._extendedBranchInfo(ref, maxWidth);
+            Terminal.println([info, extended].join(''));
+        }
+    }
 
-export async function branch(branchName: string, options: BranchArgs = {}) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-
-    if (options.list) {
-        await _listBranches(repo, options.verbose)
-    } else if (options.delete) {
-        await _deleteBranch(repo, branchName, options.forceDelete);
-    } else if (options.create) {
-        const newBranchCommitHash = await createBranch(repo, branchName, options.startPoint);
-        if (!newBranchCommitHash) {
-            Terminal.println('No commits yet, cannot create a new branch');
+    private _formatRef(ref: SymRef, current: SymRef ) {
+        if (ref.path === current.path) {
+            return `* ${ ref.shortName }`;
         } else {
-            Terminal.println(`Created branch ${ branchName }`);
-        }
-    } else {
-        await _listBranches(repo, options.verbose);
+            return `  ${ ref.shortName }`;
+        }   
     }
-}
 
-async function _listBranches(repo: TrakRepository, verbose: boolean = false) {
-    const headsDir = await TrakRepository.repoDir(repo, true, "refs", "heads");
-    if (!headsDir) 
-        return
+    private async _extendedBranchInfo(ref: SymRef, maxWidth: number) {
+        if (!this._args.verbose) return "";
+        const commit = await this._repo!.objects.loadCommit((await ref.readHash())!);
+        const short = this._repo?.objects.shortHash(commit.hash!);
+        const space = " ";
+        return `${ space } ${ short } ${ commit.titleLine }`;
+    }
 
-    const branches = await FileSystem.listFiles(headsDir);
+    private async _createBranch() {
+        let revision: Revision | undefined;
+        try {
+            const branchName = this._args.branches![0];
+            const startPoint = this._args.branches![1] ?? null;
 
-    // Get current branch
-    const currentBranch = await TRefs.getCurrentBranch(repo);
-
-    // check for empty branches
-    for (const branch of branches.sort()) {
-        const currentMarker = branch == currentBranch ? "* " : "  ";
-        let suffixInfo = '';
-        if (verbose) {
-            const commit = await TRefs.getBranchCommit(repo, branch);
-            if (commit) {
-                const commitObj = await TObjects.readObject(repo, commit) as TCommit;
-                if (commitObj) {
-                    suffixInfo = `${ shortHash(commit) } ${ commitObj.message.split('\n')[0] }`
-                }
+            let commitHash: string | null | undefined;
+            if (startPoint) {
+                revision = new Revision(this._repo!, startPoint);
+                commitHash = await revision.resolve();
+            } else {
+                commitHash = await this._repo?.refs.readHead();
             }
-        }
-        Terminal.println(`${ currentMarker }${ branch } ${suffixInfo}`);
-    }
-}
 
-export async function createBranch(repo: TrakRepository, branchName: string, startPoint?: string): Promise<string | null> {
-    // Validate branch name
-    if (!_isValidBranchName(branchName))
-        throw new Error(`${ branchName } is not a valid branch name`);
+            if (!commitHash)
+                return;
 
-    // Check if branch already exists
-    if (await TRefs.branchExists(repo, branchName))
-        throw new Error(`A branch named ${ branchName } already exists`);
-
-    // Determine starting point for new branch
-    if (!startPoint)
-        startPoint = "HEAD";
-
-    let commitHash: string | null;
-    if (startPoint) {
-        commitHash = await resolveStartPoint(repo, startPoint);
-    } else {
-        commitHash = await TRefs.getCurrentHeadCommit(repo);
-    }
-        
-    if (commitHash) {
-        await TRefs.setBranchCommit(repo, branchName, commitHash);
-    }
-
-    return commitHash;
-}
-
-async function _deleteBranch(repo: TrakRepository, branchName: string, force: boolean = false) {
-    // Check if branch exists
-    if (!(await TRefs.branchExists(repo, branchName)))
-        throw new Error(`error: branch ${ branchName } was not found`);
-
-    // Check if it's the current branch
-    const currentBranch = await TRefs.getCurrentBranch(repo);
-    if (currentBranch === branchName)
-        throw new Error(`Cannot delete branch ${ branchName } checked out at {path}`);
-
-    // Check if branch is merged (unless force delete)
-    if (!force) {
-        const branchCommit = await TRefs.getBranchCommit(repo, currentBranch);
-        if (branchCommit) {
-            if (!(await _isBranchMerged(repo, branchCommit))) 
-                throw new Error(`The branch ${branchName} is not fully merged.\n If you are sure you want to delete it, run 'trak branch -D ${branchName}'.`);
+            await this._repo?.refs.createBranch(branchName, commitHash);
+        } catch (error: any) {
+            console.log(revision?.errors);
+            // if (error is )
+            Terminal.printerr(`fatal: ${ (error as any).message }`);
+            process.exit(128);
         }
     }
 
-    // TODO: Delete branch file and remove empty directories
-    const branchFile = await TrakRepository.repoFile(repo, true, "refs", "heads", branchName);
-    await FileSystem.removeFile(branchFile!);
-    Terminal.println(`Delete branch ${ branchName }`);
-}
-
-async function _renameBranch(repo: TrakRepository, oldName: string, newName: string, force: boolean = false) {
-    // Get current branch
-    const currentBranch = await TRefs.getCurrentBranch(repo);
-    
-    // If only new_name provided, rename current branch
-    if (!oldName) {
-        oldName = currentBranch;
-
-        if (!newName)
-            throw new Error("Branch name required");
+    private async _deleteBranches() {
+        await Promise.all(this._args.branches!.map((branchName) => this._deleteBranch(branchName)));
     }
 
-    // Check if old branch exists
-    if (!(await TRefs.branchExists(repo, oldName)))
-        throw new Error(`Branch ${ oldName } was not found`);
+    private async _deleteBranch(branchName: string) {
+        if (!this._args.force) return;
 
-    // Check if new branch name is valid
-    if (!_isValidBranchName(newName))
-        throw new Error(`${ newName } is not a valid branch name`);
-
-    // Check if new branch already exists (unless force)
-    if ((await TRefs.branchExists(repo, oldName)) && !force)
-        throw new Error(`A branch named ${ newName } already exists`);
-
-    // Get commit SHA from old branch
-    const commit = await TRefs.getBranchCommit(repo, oldName);
-    if (commit)
-        await TRefs.setBranchCommit(repo, oldName, commit);
-
-    // Update HEAD if renaming current branch
-    if (oldName === currentBranch)
-        await TRefs.setCurrentBranch(repo, newName);
-
-    // # 8. Delete old branch reference
-    Terminal.println(`Renamed branch ${ oldName } to ${ newName }`);
-}
-
-async function _isBranchMerged(repo: TrakRepository, branchCommit: string) {
-    // Check if a branch is merged into HEAD
-    // Get current branch
-    const currentBranch = await TRefs.getCurrentBranch(repo);
-    const headCommit = await TRefs.getBranchCommit(repo, currentBranch);
-    if (!headCommit)
-        return null;
-
-    return await _isAncestor(repo, branchCommit, headCommit);
-}
-
-/**
- * 
- * @param repo 
- * @param ancestorSha 
- * @param descendantSha 
- * @returns 
- */
-async function _isAncestor(repo: TrakRepository, ancestorSha: string, descendantSha: string): Promise<boolean> {
-    const visited = new Set<string>();
-    const queue: string[] = [descendantSha];
-
-    while (queue.length > 0) {
-        const currentSha = queue.shift()!;
-
-        if (currentSha === ancestorSha) {
-            return true;
-        }
-
-        if (visited.has(currentSha)) {
-            continue;
-        }
-
-        visited.add(currentSha);
-
-        // Load the commit object
-        const commit = (await TObjects.readObject(repo, currentSha)) as TCommit;
-
-        // commit._parentHashes is an array of parent SHAs
-        if (commit.parentHashes && commit.parentHashes.length > 0) {
-            for (const parent of commit.parentHashes) {
-                queue.push(parent);
-            }
-        }
+        const hash = await this._repo!.refs.deleteBranch(branchName);
+        const short = this._repo!.objects.shortHash(hash);
+        Terminal.println(`deleted branch ${ branchName } (was ${ short })`);
     }
-
-    return false;
 }
 
-function _isValidBranchName(name: string): boolean {
-  // Cannot be empty
-  if (name === "") return false;
+// async function _isBranchMerged(repo: TrakRepository, branchCommit: string) {
+//     // Check if a branch is merged into HEAD
+//     // Get current branch
+//     const currentBranch = await TRefs.getCurrentBranch(repo);
+//     const headCommit = await TRefs.getBranchCommit(repo, currentBranch);
+//     if (!headCommit)
+//         return null;
 
-  // Cannot start with . or /
-  if (name.startsWith(".") || name.startsWith("/")) return false;
+//     return await _isAncestor(repo, branchCommit, headCommit);
+// }
 
-  // Cannot end with .lock
-  if (name.endsWith(".lock")) return false;
+// /**
+//  * 
+//  * @param repo 
+//  * @param ancestorSha 
+//  * @param descendantSha 
+//  * @returns 
+//  */
+// async function _isAncestor(repo: TrakRepository, ancestorSha: string, descendantSha: string): Promise<boolean> {
+//     const visited = new Set<string>();
+//     const queue: string[] = [descendantSha];
 
-  // Cannot contain ..
-  if (name.includes("..")) return false;
+//     while (queue.length > 0) {
+//         const currentSha = queue.shift()!;
 
-  // Invalid characters
-  const invalidChars = ["~", "^", ":", "?", "*", "[", "\\", " ", "\t", "\n"];
-  for (const char of invalidChars) {
-    if (name.includes(char)) return false;
-  }
+//         if (currentSha === ancestorSha) {
+//             return true;
+//         }
 
-  // Cannot be HEAD
-  if (name === "HEAD") return false;
+//         if (visited.has(currentSha)) {
+//             continue;
+//         }
 
-  return true;
-}
+//         visited.add(currentSha);
+
+//         // Load the commit object
+//         const commit = (await TObjects.readObject(repo, currentSha)) as TCommit;
+
+//         // commit._parentHashes is an array of parent SHAs
+//         if (commit.parentHashes && commit.parentHashes.length > 0) {
+//             for (const parent of commit.parentHashes) {
+//                 queue.push(parent);
+//             }
+//         }
+//     }
+
+//     return false;
+// }
+

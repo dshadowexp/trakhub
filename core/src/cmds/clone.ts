@@ -1,7 +1,26 @@
+import { BaseCommand } from "./-base";
 
+interface CloneArgs {
 
+}
 
+export class Clone extends BaseCommand<CloneArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'clone', 
+            'lists the contents of a tree object',
+            [
+                { name: 'hash', type: String, multiple: false, defaultOption: true },
+                { name: 'recursive', alias: 'r', type: Boolean },
+            ],
+            args
+        )
+    }
 
+    async run(): Promise<void> {
+
+    }
+}
 
 const fetchPackFiles = async (trakUrl: string, wantLines: string[]) => {
     try {

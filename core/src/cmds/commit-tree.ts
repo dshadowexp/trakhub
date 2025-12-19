@@ -1,9 +1,6 @@
-import { getConfig } from "../repo/config";
-import { TCommit, TObjects } from "../repo/objects";
-import { TRefs } from "../repo/refs";
 import { Terminal } from "../lib/standard";
-import { TrakRepository } from "../repository";
-import { TrakAuthor } from "../types";
+import { BaseCommand } from "./-base";
+import { commitTree } from "./-shared";
 
 type CommitTreeArgs = {
     treeHash: string,
@@ -11,37 +8,23 @@ type CommitTreeArgs = {
     message: string
 }
 
-export async function commitTree(options: CommitTreeArgs, repo?: TrakRepository | null): Promise<string | null> {
-    if (!repo)
-        repo = await TrakRepository.repoFind();
-        if (!repo)
-            return null;
-
-    const { treeHash, parents, message } = options;
-
-    // Verify no changes from computed hashes
-    if (parents.length > 0) {
-        const parentCommitObject = (await TObjects.readObject(repo, parents[0])) as TCommit;
-
-        if (parentCommitObject.treeHash === treeHash) {
-            Terminal.println('Nothing to commit, working tree clean');
-            return null;
-        }
+export class CommitTree extends BaseCommand<CommitTreeArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'commit-tree', 
+            'creates a commit object that points to',
+            [
+                { name: 'treeHash', type: String, defaultOption: true },
+                { name: 'parents', alias: 'p', type: String, multiple: true },
+                { name: 'message', alias: 'm', type: String },
+            ],
+            args
+        )
     }
 
-    // Construct author
-    const cfg = await getConfig('global');  
-    const name = process.env.TRAK_AUTHOR_NAME || cfg.get('user', 'name') || 'Unknown';
-    const email = process.env.TRAK_AUTHOR_EMAIL || cfg.get('user', 'email') || 'Unknown';
-    const author = new TrakAuthor(name, email);
-    const committer = new TrakAuthor(name, email);
-
-    // Create commit object
-    const commit = new TCommit(treeHash, parents, author, committer, message);
-    const commitHash = await TObjects.writeObject(commit, repo);;
-
-    // Update references - commit of current branch
-    await TRefs.setCurrentHeadCommit(repo, commitHash);
-
-    return commit.hash();
+    async run(): Promise<void> {
+        const { treeHash, parents, message } = this._args;
+        const commit = await commitTree(this._repo!, treeHash, parents, message);
+        Terminal.println(`[${ commit.hash }] ${ message }`);
+    }
 }

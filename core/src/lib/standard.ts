@@ -22,7 +22,7 @@ export class Terminal {
      * 
      * @param content 
      */
-    static println(content: string | number | undefined) {
+    static println(content: string | number | undefined | null) {
         this.print(`${ content || '' }\n`);
     }
 

@@ -1,15 +1,161 @@
 import { join } from "path";
-import { TrakRepository } from "../repository";
-import { NULL_OID, NULL_PATH, type TrakTreeEntry } from "../types";
-import { TBlob, TObjects } from "../repo/objects";
+import { DiffAction, NULL_OID, NULL_PATH } from "../types";
+import { TBlob } from "../repo/objects";
 import { Terminal, FileSystem } from "../lib/standard";
-import { TIndex } from "../repo/t-index";
-import { TRefs } from "../repo/refs";
-import { getTreeFilesFromCommit } from "./-shared";
-import { shortHash } from "../util";
-import { compareHeadAgainstIndex, compareWorkingDirectoryAgainstIndex } from "./status";
+import { BaseCommand } from "./-base";
+import type { Entry } from "../repo/entries";
 
+class Target {
+    constructor(
+        private _path: string, 
+        private _hash: string, 
+        private _mode: string,
+        private _data: string
+    ) {}
 
+    get name(): string { return this._path; }
+    get hash(): string { return this._hash; }
+    get mode(): string { return this._mode; }
+    get data(): string { return this._data; }
+
+    get diffPath(): string { 
+        return this._mode ? this._path : NULL_PATH;
+    }
+}
+
+interface DiffArgs {
+    cached?: boolean;
+}
+
+export class Diff extends BaseCommand<DiffArgs> {
+    constructor(args: any[] = []) {
+        super(
+            'diff', 
+            'lists the contents of a tree object',
+            [
+                { name: 'cached', alias: 'c', type: Boolean },
+            ],
+            args
+        )
+    }
+
+    async run(): Promise<void> {
+        await this._repo!.index.load();
+        await this._repo!.status.initialize();
+
+        if (this._args.cached) {
+            await this._diffHeadIndex();
+        } else {
+            await this._diffIndexWorkspace();
+        }
+    }
+
+    private async _diffHeadIndex() {
+        for (const [path, action] of this._repo!.status.indexChanges) {
+            switch(action) {
+                case DiffAction.ADD:
+                    this._printDiff(this._fromNothing(path), await this._fromIndex(path));
+                    break;
+                case DiffAction.MODIFY:
+                    this._printDiff(await this._fromHead(path), await this._fromIndex(path));
+                    break;
+                case DiffAction.DELETE:
+                    this._printDiff(await this._fromHead(path), this._fromNothing(path));
+                    break;
+            }
+        }
+    }
+
+    private async _diffIndexWorkspace() {
+        for (const [path, action] of this._repo!.status.workspaceChanges) {
+            switch(action) {
+                case DiffAction.MODIFY:
+                    this._printDiff(await this._fromIndex(path), await this._fromFile(path));
+                    break;
+                case DiffAction.DELETE:
+                    this._printDiff(await this._fromIndex(path), this._fromNothing(path));
+                    break;
+            }
+        }
+    }
+
+    async _fromHead(path: string): Promise<Target> {
+        const entry = this._repo!.status.headTree.get(path);
+        return await this._fromEntry(entry!);
+    }
+    
+    async _fromIndex(path: string): Promise<Target> {
+        const entry = this._repo!.index.entryForPath(path);
+        if (!entry)
+            throw new Error(`Entry not found for path ${ path }`);
+    
+        return await this._fromEntry(entry);
+    }
+    
+    async _fromFile(path: string): Promise<Target> {
+        const fileContent = await FileSystem.readFile(path);
+        const blob = new TBlob(fileContent);
+        const oid = this._repo!.objects.hashObject(blob);
+        const mode = FileSystem.mode(path);
+        return new Target(path, oid, mode, fileContent.toString());
+    }
+    
+    private async _fromEntry(entry: Entry): Promise<Target> {
+        // console.log(entry);
+        const blob = await this._repo!.objects.readObject(entry.hash);
+        return new Target(entry.path, entry.hash, entry.mode, blob.serialize().toString());
+    }
+
+    private _fromNothing(path: string): Target {
+        return new Target(path, NULL_OID, "", "");
+    }
+
+    private _printDiff(a: Target, b: Target) {
+        const aPath = join("a", a.name);
+        const bPath = join("b", b.name);
+
+        Terminal.println(`diff --trak ${ aPath } ${ bPath }`);
+        this._printDiffMode(a, b);
+        this._printDiffContent(a, b);
+    }
+
+    private _printDiffConflict(path: string) {
+        Terminal.println(`* Unmerged path ${ path }`);
+    }
+
+    private _printDiffMode(a: Target, b: Target) {
+        if (!a.mode) {
+            Terminal.println(`new file mode ${ b.mode }`);
+        } else if (!b.mode) {
+            Terminal.println(`delete file mode ${ a.mode }`);
+        } else if (a.mode !== b.mode) {
+            Terminal.println(`old mode ${ a.mode }`);
+            Terminal.println(`new mode ${ b.mode }`);
+        }
+    }
+
+    private _printDiffContent(a: Target, b: Target) {
+        if (a.hash === b.hash)
+            return;
+
+        const oidRange = [`index ${ this._repo!.objects.shortHash(a.hash) }..${ b.hash.slice(0, 7) }`];
+        if (a.mode === b.mode)
+            oidRange.push(`${ a.mode }`);
+
+        Terminal.println(`${ oidRange.join(' ') }`);
+        Terminal.println(`--- ${ a.diffPath }`);
+        Terminal.println(`+++ ${ b.diffPath }`);
+
+        // display the contents of the difference in the files 
+        const edits = _myersDiff(a.data.split("\n"), b.data.split("\n"));
+        const hunks = buildHunks(edits);
+
+        for (const h of hunks) {
+            Terminal.println(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
+            Terminal.println(h.lines.join("\n"));
+        }
+    }
+}
 
 type DiffOp =
     | { type: "add"; line: string; position: number }
@@ -18,229 +164,12 @@ type DiffOp =
 
 const diffSymbols = { "add": "+", "delete": "-", "context": " "};
 
-type Target = TrakTreeEntry & { data: string };
-
 export interface Hunk {
     oldStart: number;
     oldLines: number;
     newStart: number;
     newLines: number;
     lines: string[];  // formatted diff lines
-}
-
-type DiffArgs = {
-    cached?: boolean;
-}
-
-export async function diff(options: DiffArgs = {}) {
-    const repo = await TrakRepository.repoFind();
-    if (!repo)
-        return;
-
-    // Load index (Staging area)
-    await TIndex.load(repo);
-
-    if (options.cached) {
-        await _diffHeadIndex(repo);
-    } else {
-        await _diffIndexWorkspace(repo);
-    }
-}
-
-/**
- * 
- * @param repo 
- * @param indexEntries 
- */
-async function _diffHeadIndex(repo: TrakRepository) {
-    // COMPARE HEAD vs INDEX (staged changes)
-    const [stagedNew, stagedModified, stagedDeleted] = await compareHeadAgainstIndex(repo);
-
-    if (stagedNew.length > 0) {
-        for (const path of stagedNew) {
-            _printDiff(_fromNothing(path), await _fromIndex(repo, path));
-        }
-    }
-    
-    if (stagedModified.length > 0) {
-        for (const path of stagedModified) {
-            _printDiff(await _fromHead(repo, path), await _fromIndex(repo, path));
-        }
-    }
-
-    if (stagedDeleted.length > 0) {
-        for (const path of stagedDeleted) {
-            _printDiff(await _fromHead(repo, path), _fromNothing(path));
-        }
-    }
-}
-
-/**
- * 
- * @param repo 
- * @param workingFiles 
- * @param indexEntries 
- */
-async function _diffIndexWorkspace(repo: TrakRepository) {
-    // COMPARE INDEX vs WORKING DIRECTORY (unstaged changes)
-    const [untracked, unstagedModified, unstagedDeleted] = await compareWorkingDirectoryAgainstIndex(repo);
-
-    if (unstagedModified.length > 0) {
-        for (const path of unstagedModified) {
-            _printDiff(await _fromIndex(repo, path), await _fromFile(path));
-        }
-    }
-
-    if (unstagedDeleted.length > 0) {
-        for (const path of unstagedDeleted) {
-            _printDiff(await _fromIndex(repo, path), _fromNothing(path));
-        }
-    }
-}
-
-/**
- * 
- * @param repo 
- * @param path 
- * @returns 
- */
-async function _fromHead(repo: TrakRepository, path: string): Promise<Target> {
-    const currentBranch = await TRefs.getCurrentBranch(repo); // Fetch head instead
-    const committedFiles: Record<string, TrakTreeEntry> = (await getTreeFilesFromCommit(repo, currentBranch)).reduce((current, value) => {
-        return { ...current, [value.name]: value }
-    }, {});
-    return await _fromEntry(repo, { name: path, oid: committedFiles[path].oid, mode: committedFiles[path].mode });
-}
-
-/**
- * 
- * @param repo 
- * @param path 
- * @returns 
- */
-async function _fromIndex(repo: TrakRepository, path: string): Promise<Target> {
-    await TIndex.load(repo)
-    const entry = TIndex.getEntry(path);
-    if (!entry)
-        throw new Error(`Entry not found for path ${ path }`);
-
-    return await _fromEntry(repo, { name: path, oid: entry.sha1.toString("hex"), mode: entry.mode.toString() });
-}
-
-/**
- * 
- * @param path 
- * @returns 
- */
-async function _fromFile(path: string): Promise<Target> {
-    const fileContent = await FileSystem.readFile(path);
-    const blob = new TBlob(fileContent);
-    const oid = blob.hash();
-    const mode = FileSystem.mode(path);
-    return {
-        name: path,
-        oid,
-        mode,
-        data: fileContent.toString(),
-    };
-}
-
-/**
- * 
- * @param path 
- * @returns 
- */
-function _fromNothing(path: string): Target {
-    return {
-        name: path,
-        oid: NULL_OID, // Null oid
-        mode: "",
-        data: NULL_PATH, // Null path
-    };
-}
-
-/**
- * 
- * @param repo 
- * @param entry 
- * @returns 
- */
-async function _fromEntry(repo: TrakRepository, entry: TrakTreeEntry): Promise<Target> {
-    const blob = await TObjects.readObject(repo, entry.oid);
-    if (!blob) 
-        throw new Error(`Cannot read object fromEntry ${ entry.oid }`);
-
-    return {
-        name: entry.name,
-        oid: entry.oid,
-        mode: entry.mode,
-        data: blob.content.toString(),
-    }
-}
-
-/**
- * 
- * @param a 
- * @param b 
- */
-function _printDiff(a: Target, b: Target) {
-    const aPath = join("a", a.name);
-    const bPath = join("b", b.name);
-
-    Terminal.println(`diff --trak ${ aPath } ${ bPath }`);
-    _printDiffMode(a, b);
-    _printDiffContent(a, b);
-}
-
-/**
- * 
- */
-function _printDiffConflict(path: string) {
-    Terminal.println(`* Unmerged path ${ path }`);
-}
-
-/**
- * 
- * @param a 
- * @param b 
- */
-function _printDiffMode(a: Target, b: Target) {
-    if (!a.mode) {
-        Terminal.println(`new file mode ${ b.mode }`);
-    } else if (!b.mode) {
-        Terminal.println(`delete file mode ${ a.mode }`);
-    } else if (a.mode !== b.mode) {
-        Terminal.println(`old mode ${ a.mode }`);
-        Terminal.println(`new mode ${ b.mode }`);
-    }
-}
-
-/**
- * 
- * @param a 
- * @param b 
- * @returns 
- */
-function _printDiffContent(a: Target, b: Target) {
-    if (a.oid === b.oid)
-        return;
-
-    const oidRange = [`index ${ shortHash(a.oid) }..${ b.oid.slice(0, 7) }`];
-    if (a.mode === b.mode)
-        oidRange.push(`${ a.mode }`);
-
-    Terminal.println(`${ oidRange.join(' ') }`);
-    Terminal.println(`--- ${ a.mode ? a.name : NULL_PATH }`);
-    Terminal.println(`+++ ${ b.mode ? b.name : NULL_PATH }`);
-
-    // display the contents of the difference in the files 
-    const edits = _myersDiff(a.data.split("\n"), b.data.split("\n"));
-    const hunks = buildHunks(edits);
-
-    for (const h of hunks) {
-        Terminal.println(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
-        Terminal.println(h.lines.join("\n"));
-    }
 }
 
 export interface Hunk {

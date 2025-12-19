@@ -1,4 +1,4 @@
-import { BaseCommand } from "../types";
+import { BaseCommand } from "./-base";
 import { Terminal } from "../lib/standard";
 
 interface CatFileArgs {
@@ -23,20 +23,21 @@ export class CatFile extends BaseCommand<CatFileArgs> {
         )
     }
 
-    async execute(): Promise<void> {
-        const object = await this._repo!.objects.readObject(this._args.hash);
+    async run(): Promise<void> {
+        const obj = await this._repo!.objects.readObject(this._args.hash);
 
-        if (!object)
+        if (!obj)
             return;
+        const content = obj?.serialize();
 
         if (this._args.type) {
-            Terminal.println(object.type);
+            Terminal.println(obj.type);
         } else if (this._args.size) {
-            Terminal.println(object.content.byteLength);
+            Terminal.println(content.byteLength);
         } else if (this._args.pretty) {
-            Terminal.println(`${ object?.serialize().toString() }` || '');
+            Terminal.println(`${ content.toString() }` || '');
         } else {
-            Terminal.println(object.content.toString());
+            Terminal.println(content.toString());
         }
     }
 }

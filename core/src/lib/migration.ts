@@ -1,9 +1,9 @@
 import { dirname, join } from "path";
-import { DiffAction, type DiffEntry } from "./tree-diff";
+import { type DiffEntry } from "./tree-diff";
 import { FileSystem, Terminal } from "./standard";
 import { TBlob, TObjects } from "../repo/objects";
 import type { TrakRepository } from "../repository";
-import { UnixFileModeEnum } from "../types";
+import { DiffAction, UnixFileModeEnum } from "../types";
 import { mkdir } from "fs/promises";
 import { TIndex } from "../repo/t-index";
 

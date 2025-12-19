@@ -1,4 +1,4 @@
-import { basename, isAbsolute, join, resolve, sep } from "path";
+import { basename, isAbsolute, join, sep } from "path";
 import type { Stats } from "fs";
 import { UnixFileModeEnum } from "../types";
 

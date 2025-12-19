@@ -37,9 +37,6 @@ export class Checkout extends BaseCommand<CheckoutArgs> {
 }
 
 // export async function checkout(targetRef: string, options: CheckoutArgs) {
-//     const repo = await TrakRepository.repoFind();
-//     if (!repo)
-//         return;
 
 //     // Resolve and extract files in current commit
 //     const currentCommit = await TRefs.getCurrentHeadCommit(repo);

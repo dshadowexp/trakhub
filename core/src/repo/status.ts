@@ -4,8 +4,10 @@ import { DiffField, DiffAction } from "../types";
 import { TRepository } from "./repository";
 import { IndexEntry, TreeEntry } from "./entries";
 import { TBlob } from "./objects";
+import { Inspector } from "../lib/inspector";
 
 export class TStatus {
+    private _inspector: Inspector;
     private _untracked: Set<string>;
     private _changed: Set<string>;
     private _indexChanges: Map<string, DiffAction>;
@@ -15,6 +17,7 @@ export class TStatus {
     private _conflicts: Map<string, number[]>;
 
     constructor(private _repo: TRepository) {
+        this._inspector = new Inspector(_repo);
         this._untracked = new Set();
         this._changed = new Set();
         this._workspaceChanges = new Map();
@@ -44,47 +47,11 @@ export class TStatus {
             if (this._repo!.index.isTracked(path)) {
                 if (stat.isFile()) this._stats.set(path, stat);
                 if (stat.isDirectory()) await this._scanWorkspace(path);
-            } else if (await this._trackableFile(path, stat)) {
+            } else if (await this._inspector.trackableFile(path, stat)) {
                 const trackedPath = stat.isDirectory() ? `${ path }${ sep }` : path;
                 this._untracked.add(trackedPath);
             }
         }
-    }
-
-    private async _trackableFile(path: string, stat: Stats | null): Promise<boolean> {
-        if (!stat) return false;
-        if (stat.isFile()) return !this._repo!.index.isTracked(path);
-        if (!stat.isDirectory()) return false;
-    
-        const items = await this._repo!.workspace.listFiles(path);
-        
-        // Separate files and directories
-        const files: [string, Stats][] = [];
-        const dirs: [string, Stats][] = [];
-        
-        for (const [itemPath, itemStat] of items) {
-            if (itemStat.isFile()) {
-                files.push([itemPath, itemStat]);
-            } else if (itemStat.isDirectory()) {
-                dirs.push([itemPath, itemStat]);
-            }
-        }
-        
-        // Check files first
-        for (const [itemPath, itemStat] of files) {
-            if (await this._trackableFile(itemPath, itemStat)) {
-                return true;
-            }
-        }
-        
-        // Then check directories
-        for (const [itemPath, itemStat] of dirs) {
-            if (await this._trackableFile(itemPath, itemStat)) {
-                return true;
-            }
-        }
-        
-        return false;
     }
 
     private async _recordChange(path: string, field: DiffField, action: DiffAction) {
@@ -130,36 +97,20 @@ export class TStatus {
 
     private async _checkIndexAgainstHeadTree(entry: IndexEntry) {
         const item = this._headTree.get(entry.path);
-        if (item) {
-            if (item.hash !== entry.hash || item.mode !== entry.mode) {
-                this._recordChange(entry.path, DiffField.INDEX, DiffAction.MODIFY);
-            }
-        } else {
-            this._recordChange(entry.path, DiffField.INDEX, DiffAction.ADD);
+        const status = this._inspector.compareTreeToIndex(item, entry);
+        if (status) {
+            this._recordChange(entry.path, DiffField.INDEX, status);   
         }
     }
 
     private async _checkIndexAgainstWorkspace(entry: IndexEntry) {
         const stat = this._stats.get(entry.path);
-        if (!stat) {
-            this._recordChange(entry.path, DiffField.WORKSPACE, DiffAction.DELETE);
-            return;
-        };
+        const status = await this._inspector.compareIndexToWorkspace(entry, stat);
 
-        if (!entry.statMatch(stat)) {
+        if (status) {
             this._recordChange(entry.path, DiffField.WORKSPACE, DiffAction.MODIFY);
-            return;
-        }
-
-        if (entry.timesMatch(stat)) return;
-
-        const data = await this._repo!.workspace.readFile(entry.path);
-        const blob = new TBlob(data);
-        const hash = this._repo!.objects.hashObject(blob);
-        if (hash === entry.hash) {
-            this._repo!.index.updateEntryStat(entry, stat);
         } else {
-            this._recordChange(entry.path, DiffField.WORKSPACE, DiffAction.MODIFY);
+            this._repo!.index.updateEntryStat(entry, stat!); // TODO: investigate the stat being null
         }
     }
 

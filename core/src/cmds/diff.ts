@@ -101,7 +101,6 @@ export class Diff extends BaseCommand<DiffArgs> {
     }
     
     private async _fromEntry(entry: Entry): Promise<Target> {
-        // console.log(entry);
         const blob = await this._repo!.objects.readObject(entry.hash);
         return new Target(entry.path, entry.hash, entry.mode, blob.serialize().toString());
     }

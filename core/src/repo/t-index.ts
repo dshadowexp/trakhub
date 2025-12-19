@@ -161,6 +161,7 @@ export class TIndex {
             if (pathEnd >= end) throw new Error("Index path missing null terminator");
 
             const filePath = data.subarray(fieldsEnd, pathEnd).toString("utf8");
+            // console.log('load print=====', sha1.toString('hex'));
 
             // Build entry object
             entries.push(new IndexEntry(
@@ -221,7 +222,8 @@ export class TIndex {
             this._writeUInt32BE(entry.size, head, 36);
 
             // sha1 (20 bytes)
-            Buffer.from(entry.hash).copy(head, 40);
+            // console.log('save print =====', entry.hash);
+            Buffer.from(entry.hash, 'hex').copy(head, 40);
 
             // flags (2 bytes, BE)
             head.writeUInt16BE(entry.flags, 60);

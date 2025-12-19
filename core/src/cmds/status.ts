@@ -42,7 +42,6 @@ export class Status extends BaseCommand<StatusArgs> {
     async run(): Promise<void> {
         await this._repo!.index.load();
         await this._repo?.status.initialize();
-        await this._repo!.index.save();
         this._printResults();
     }
 

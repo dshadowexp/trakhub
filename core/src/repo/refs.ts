@@ -168,7 +168,7 @@ export class TRefs {
 
     private async _updateSymRef(path: string, hash: string) {
         const ref = await this._readOidOrSymref(path);
-        console.log('updateSymRef', path, ref instanceof Ref, ref instanceof SymRef);
+        // console.log('updateSymRef', path, ref instanceof Ref, ref instanceof SymRef);
 
         if (!(ref instanceof SymRef)) {
             await this._updateRefFile(path, hash);
@@ -337,7 +337,7 @@ export class TRemotes {
     async getUpstream(branch: string) {
         const cfg = await this._repo.config.getConfig('local');
         const name = cfg.get("branch", "merge", branch) || '';
-        await 
+        return (await this.get(name))?.getUpstream(branch);
     }
 }
 
@@ -385,7 +385,7 @@ export class Refspec {
 
         // Create pattern by replacing * with capture group
         const patternStr = this._source.replace("*", "(.*)");
-        const pattern = new RegExp(`^${patternStr}$`);
+        const pattern = new RegExp(`^${ patternStr }$`);
         
         const mappings: Record<string, [string, boolean]> = {};
 

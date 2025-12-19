@@ -1,11 +1,13 @@
 import { chmodSync, createReadStream, createWriteStream, existsSync, Stats, statSync } from "fs";
-import { UnixFileModeEnum } from "../types";
+import { DiffAction, UnixFileModeEnum } from "../types";
 import { Readable, Writable } from "stream";
 import { pipeline } from "stream/promises";
 import { unlink } from "fs/promises";
 import { dirname, join, relative } from "path";
 import { readdir } from "fs/promises";
 import { rmdir } from "fs/promises";
+import type { Migration } from "../lib/migration";
+import type { BaseEntry } from "./entries";
 
 export const IGNORE: string[] = ['..', '.', '.trak', 'node_modules', 'bun.lock', 'README.md', '.gitignore', 'package.json', 'tsconfig.json', 'trak.sh', 'src', 'main.ts', 'bun.lockb', '.DS_Store', 'fakeconfig.txt', '.trakconfig', 'package-lock.json'];
 const ignoreSet = new Set(IGNORE);
@@ -17,20 +19,10 @@ export class Workspace {
         return join(this._dirname, path);
     }
 
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
     exists(path: string) {
         return existsSync(path);
     }
 
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
     stats(path: string) {
         try {
             return statSync(path);
@@ -43,48 +35,25 @@ export class Workspace {
         }
     }
 
-    /**
-     * 
-     */
     setMode(path: string, mode: string) {
         const modeConvert = parseInt(mode) & 0o777;
         chmodSync(path, modeConvert);
     }
 
-    /**
-     * 
-     * @param stats 
-     * @returns 
-     */
     mode(path: string) {
         const stats = this.stats(path);
         return stats.isSymbolicLink() ? UnixFileModeEnum.SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? UnixFileModeEnum.EXECUTABLE_FILE : UnixFileModeEnum.REGULAR_FILE;
     }
 
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
     isDirectory(path: string) {
         const stats = this.stats(path);
         return stats.isDirectory();
     }
 
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
     isFile(path: string) {
         return this.stats(path).isFile();
     }
 
-    /**
-     * 
-     * @param path 
-     * @returns 
-     */
     async readFile(path: string) {
         const chunks: Buffer[] = [];
         const collectStream = new Writable({
@@ -98,20 +67,10 @@ export class Workspace {
         return Buffer.concat(chunks);
     }
 
-    /**
-     * 
-     * @param path 
-     * @param data 
-     */
     async writeFile(path: string, data: string | Buffer) {
         await pipeline(Readable.from(data), createWriteStream(this.resolve(path)));
     }
 
-    /**
-     * 
-     * @param path 
-     * @param endDir 
-     */
     async removeFile(path: string, endDir?: string) {
         path = this.resolve(path);
         await unlink(path);
@@ -136,11 +95,6 @@ export class Workspace {
         }
     }
 
-    /**
-     * 
-     * @param directory 
-     * @returns 
-     */
     async listFiles(directory: string | undefined): Promise<[string, Stats][]> {
         const files: [string, Stats][] = [];
         const stack: Array<[string, string]> = [[join(this._dirname, directory || ""), ""]];
@@ -170,5 +124,40 @@ export class Workspace {
         }
       
         return files;
+    }
+
+    async applyMigration(migration: Migration) {
+        await this._applyChangeList(migration, DiffAction.DELETE);
+        // migration.rmdirs.sort.reverse_each { |dir| remove_directory(dir) }
+
+        // migration.mkdirs.sort.reverse_each { |dir| remove_directory(dir) }
+        await this._applyChangeList(migration, DiffAction.MODIFY);
+        await this._applyChangeList(migration, DiffAction.ADD);
+    }
+
+    private async _applyChangeList(migration: Migration, action: DiffAction) {
+        for (const [filePath, entry] of migration.changes.get(action)!) {
+            const fullPath = join(this._dirname, filePath);
+            await this.removeFile(fullPath, this._dirname);
+
+            if (action === DiffAction.DELETE) continue;
+
+            const data = await migration.blobData(entry!.hash);// TODO: check if need to continue if entry is null
+            await this.writeFile(fullPath, data);
+            //this.setMode(fullPath, entry!.mode);
+        }
+    }
+
+    private _sortByDepth(actions: [string, (BaseEntry | undefined)][], descendingOrder: boolean = false) {
+        return actions.sort((a, b) => {
+            const depthA = (a[0].match(/\//g) || []).length;
+            const depthB = (b[0].match(/\//g) || []).length;
+    
+            if (descendingOrder) {
+                return depthA - depthB;
+            } else {
+                return depthB - depthA;
+            }
+        })
     }
 }

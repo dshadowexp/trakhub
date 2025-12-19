@@ -13,14 +13,14 @@ import { Status } from "./cmds/status";
 import { Diff } from "./cmds/diff";
 import { Branch } from "./cmds/branch";
 import { Checkout } from "./cmds/checkout";
-import { config } from "./cmds/config";
-import { fetch } from "./cmds/fetch";
-import { merge } from "./cmds/merge";
+import { Config } from "./cmds/config";
+import { Fetch } from "./cmds/fetch";
+import { Merge } from "./cmds/merge";
 
 import commandLineArgs from 'command-line-args';
 import type { BaseCommand } from "./cmds/-base";
 
-export async function parse(args: string[]) {
+export async function parse() {
     const mainDefinitions = [
         { name: 'command', defaultOption: true }
     ];
@@ -54,10 +54,10 @@ export async function parse(args: string[]) {
         command = new Status(argv)
     } else if (mainOptions.command === 'diff') {
         command = new Diff(argv);
-    } else if (mainOptions.command === 'log') {
-        command = new Log(argv);
     } else if (mainOptions.command === 'branch') {
         command = new Branch(argv);
+    } else if (mainOptions.command === 'log') {
+        command = new Log(argv);
     } else if (mainOptions.command === 'checkout') {
         command = new Checkout(argv);
     }

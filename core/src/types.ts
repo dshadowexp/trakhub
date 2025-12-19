@@ -41,7 +41,8 @@ export enum DiffField {
 export enum DiffAction {
     ADD = "add",
     DELETE = "delete",
-    MODIFY = "modify"
+    MODIFY = "modify",
+    UNTRACKED = "untracked"
 }
 
 export type DirTree = { [name: string]: DirTree | string };

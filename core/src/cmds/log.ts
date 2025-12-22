@@ -1,6 +1,5 @@
 import { PrintDiff } from "../lib/print-diff";
 import { RevList } from "../lib/rev-list";
-import { Revision } from "../lib/revision";
 import { Terminal } from "../lib/standard";
 import type { TCommit } from "../repo/objects";
 import type { SymRef } from "../repo/refs";
@@ -74,10 +73,10 @@ export class Log extends BaseCommand<LogArgs> {
         this._blankLine();
 
         Terminal.println([
-            `commit ${ commit.hash }\n`,
+            `commit  ${ commit.hash }\n`,
             `Author: ${ author.serialize() }\n`,
             `Date:   ${ formatGitDate(commit.author.timestamp) }\n`,
-            `\n\t${ commit.message }`
+            `\n\t${ commit.titleLine }`
         ].join(''))
     }
 

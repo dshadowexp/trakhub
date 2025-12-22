@@ -8,7 +8,7 @@ import { createDeflate, createInflate } from "zlib";
 import { getTimezone } from '../util';
 import { FileSystem } from '../lib/standard';
 import { TrakAuthor } from './author';
-import { DiffAction, NULL_BYTE, UnixFileModeEnum } from '../types';
+import { NULL_BYTE, UnixFileModeEnum } from '../types';
 import { BaseEntry, IndexEntry, TreeEntry } from './entries';
 import { TreeDiff } from '../lib/tree-diff';
 import { PathFilter } from '../lib/path-filter';
@@ -31,8 +31,9 @@ export class TObject {
         return this._type;
     }
 
-    get hash(): string | null {
-        return this._hash;
+    get hash(): string {
+
+        return this._hash || '';
     }
 
     set hash(hash: string) {
@@ -199,12 +200,10 @@ export class TCommit extends TObject {
         lines.push("");
         lines.push(this._message);
 
-        // Convert to Buffer
         return Buffer.from(lines.join("\n"));
     }
 
     static deserialize(content: Buffer): TCommit {
-        // Splits content by new line
         const lines = content.toString().split('\n');
         let treeHash = null, 
             parentHashes: string[] = [], 
@@ -311,7 +310,8 @@ export class TObjects {
     }
 
     hashObject(obj: TObject) {
-        return obj.hash ??= this.hashContent(this._serializeObject(obj));
+        obj.hash = this.hashContent(this._serializeObject(obj));
+        return obj.hash;
     }
 
     hashContent(content: Buffer) {
@@ -379,17 +379,17 @@ export class TObjects {
         switch(objectType as TObjectType) {
             case TObjectType.BLOB:
                 const blob = TBlob.deserialize(content);
-                blob.hash = this.hashObject(blob);
+                this.hashObject(blob);
                 this._objects.set(hash, blob);
                 return blob;
             case TObjectType.TREE:
                 const tree = TTree.deserialize(content);
-                tree.hash = this.hashObject(tree);
+                this.hashObject(tree);
                 this._objects.set(hash, tree);
                 return tree;
             case TObjectType.COMMIT:
                 const commit = TCommit.deserialize(content);
-                commit.hash = this.hashObject(commit);
+                this.hashObject(commit);
                 this._objects.set(hash, commit);
                 return commit;
             default:
@@ -397,11 +397,10 @@ export class TObjects {
         }
     } 
 
-    async treeDiff(aCommitHash: string, bCommitHash: string, pathFilter: PathFilter = new PathFilter()) {
+    async treeDiff(aCommitOid: string, bCommitOid: string, pathFilter: PathFilter = new PathFilter()) {
         const treeDiff = new TreeDiff(this);
-        const commitObjectA = await this.loadCommit(aCommitHash);
-        const commitObjectB = await this.loadCommit(bCommitHash);
-        return await treeDiff.compareTrees(commitObjectA.treeHash, commitObjectB.treeHash);
+        await treeDiff.compareOids(aCommitOid, bCommitOid, pathFilter);
+        return treeDiff.changes;
     }
 
     _serializeObject(obj: TObject) {

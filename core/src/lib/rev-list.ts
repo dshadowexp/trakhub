@@ -1,4 +1,4 @@
-import type { DiffEntry } from "./tree-diff";
+import type { DiffEntry, DiffMap } from "./tree-diff";
 import type { TreeEntry } from "../repo/entries";
 import { TObjectType, type TCommit } from "../repo/objects";
 import type { TRepository } from "../repo/repository";
@@ -23,7 +23,7 @@ export class RevList {
     private _prune: string[];
     private _commits: Map<string, TCommit>;
     private _flags: Map<string, Set<Flags>>;
-    private _diff: Map<string, DiffEntry[]>;
+    private _diff: Map<string, any>;
     private _filter: PathFilter;
     private _objects: boolean | undefined;
     private _walk: boolean | undefined;
@@ -218,7 +218,7 @@ export class RevList {
             this._simplifyCommit(commit);
         }
 
-        if (!parentCommit)
+        if (parentCommit)
             this._enqueueCommit(parentCommit);
     }
 
@@ -237,8 +237,12 @@ export class RevList {
         if (!this._mark(commit.hash, Flags.SEEN))
             return;
 
-        const index = this._queue.findIndex(c => c.date < commit.date );
-        this._queue.splice(index === -1 ? this._queue.length : index, 0, commit);
+        if (this._walk) {
+            const index = this._queue.findIndex(c => c.date < commit.date );
+            this._queue.splice(index === -1 ? this._queue.length : index, 0, commit);
+        } else {
+            this._queue.push(commit);
+        }
     }
 
     private async _loadCommit(oid: string | null) {
@@ -285,11 +289,17 @@ export class RevList {
         if (commit === null) 
             return;
 
-        while (commit!.parentHashes.length || 0 > 0) {
-            if (!this._mark(commit?.hash, Flags.UNINTERESTING))
-                return;
-
-            commit = this._commits.get(commit!.parentHashes[0]) ?? null;
+        const queue: string[] = [...commit.parentHashes];
+    
+        while (queue.length > 0) {
+            const oid = queue.shift()!;
+            
+            if (!this._mark(oid, Flags.UNINTERESTING))
+                continue;
+            
+            const parentCommit = this._commits.get(oid);
+            if (parentCommit)
+                queue.push(...parentCommit.parentHashes);
         }
     }
 
@@ -304,18 +314,16 @@ export class RevList {
         return !!this._flags.get(commitHash)?.has(flag);
     }
 
-    private _mark(oid: string | undefined | null, flag: Flags) {
-        if (!oid) 
-            return;
-
-        let isContained = false;
+    private _mark(oid: string, flag: Flags) {
         if (!this._flags.has(oid)) {
-            isContained = true;
             this._flags.set(oid, new Set());
         }
-            
-        this._flags.get(oid)?.add(flag);
-        return isContained;
+        
+        const flags = this._flags.get(oid)!;
+        const hadFlag = flags.has(flag);
+        flags.add(flag);
+        
+        return !hadFlag;
     }
 
     

@@ -50,13 +50,16 @@ export class Checkout extends BaseCommand<CheckoutArgs> {
 
             this._currentRef = await this._repo!.refs.currentRef();
             this._currentOid = await this._currentRef.readHash();
+            console.log(this._currentOid);
 
             const revision = new Revision(this._repo!, this._target);
             this._targetOid = await revision.resolve(TObjectType.COMMIT);
+            console.log(this._targetOid)
 
             await this._repo!.index.load();
 
             const treeDiff = await this._repo!.objects.treeDiff(this._currentOid!, this._targetOid);
+            console.log(treeDiff);
             const migration = this._repo!.migration(treeDiff);
             await migration.applyChanges();
 
@@ -70,7 +73,7 @@ export class Checkout extends BaseCommand<CheckoutArgs> {
 
             process.exit(0);
         } catch (error) {
-            
+            console.log(error);
         }
     }
 

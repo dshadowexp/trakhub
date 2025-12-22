@@ -100,7 +100,6 @@ export class Revision {
         if (hash)
             return hash;
         throw new Error(`Not a valid object name: ${ this._expr }`);
-
     }
 
     readRef(name: string) {

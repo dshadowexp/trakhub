@@ -92,7 +92,8 @@ export class TRefs {
         const refs = await this.listAllRefs();
         for (const ref of refs) {
             const hash = await ref.readHash();
-            if (!hash) continue;
+            if (!hash) 
+                continue;
             table.set(hash, ref);
         }
         return table;
@@ -168,7 +169,6 @@ export class TRefs {
 
     private async _updateSymRef(path: string, hash: string) {
         const ref = await this._readOidOrSymref(path);
-        // console.log('updateSymRef', path, ref instanceof Ref, ref instanceof SymRef);
 
         if (!(ref instanceof SymRef)) {
             await this._updateRefFile(path, hash);

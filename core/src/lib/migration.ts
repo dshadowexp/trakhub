@@ -2,7 +2,7 @@ import type { Stats } from "fs";
 import { dirname, parse } from "path";
 import { DiffAction } from "../types";
 import { Inspector } from "./inspector";
-import { type DiffEntry } from "./tree-diff";
+import { type DiffMap } from "./tree-diff";
 import type { TRepository } from "../repo/repository";
 import type { BaseEntry, IndexEntry, TreeEntry } from "../repo/entries";
 
@@ -40,7 +40,7 @@ export class Migration {
 
     constructor(
         private _repo: TRepository,
-        private _treeDiff: DiffEntry[]
+        private _treeDiff: DiffMap
     ) {
         this._inspector = new Inspector(_repo);
         this._changes = new Map([

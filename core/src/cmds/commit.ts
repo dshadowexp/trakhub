@@ -36,8 +36,10 @@ export class Commit extends BaseCommand<CommitArgs> {
         // }
 
         const commit = await writeCommit(this._repo!, parentHashes, message);
+        if (!commit)
+            return;
         
         const isRoot = parentHashes.length === 0 ? '(root-commit)' : 'current-branch';
-        Terminal.println(`[${ isRoot } ${ commit?.hash }] ${ message }`);
+        Terminal.println(`[${ isRoot } ${ this._repo!.objects.shortHash(commit.hash) }] ${ message }`);
     }
 }

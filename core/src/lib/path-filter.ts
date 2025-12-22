@@ -39,6 +39,10 @@ class Trie {
 export class PathFilter {
     constructor(private _routes: Trie = new Trie(true), private _path: string = '') {}
 
+    get path() {
+        return this._path;
+    }
+    
     *eachEntry(entries: Map<string, any>) {
         for (const [name, entry] of entries) {
             if (this._routes.matched || this._routes.children[name]) {

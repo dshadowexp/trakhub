@@ -24,13 +24,13 @@ export class Workspace {
     }
 
     stats(path: string) {
+        console.log(path);
         try {
             return statSync(path);
         } catch (err: any) {
-            console.log(err); 
-            // if (err.code === 'ENOENT') {
-            //     return null;
-            // }
+            if (err.code === 'ENOENT') {
+                return null;
+            }
             throw err;
         }
     }
@@ -42,16 +42,23 @@ export class Workspace {
 
     mode(path: string) {
         const stats = this.stats(path);
+        if (!stats)
+            return;
         return stats.isSymbolicLink() ? UnixFileModeEnum.SYMBOLIC_LINK : (stats.mode & 0o111) !== 0 ? UnixFileModeEnum.EXECUTABLE_FILE : UnixFileModeEnum.REGULAR_FILE;
     }
 
     isDirectory(path: string) {
         const stats = this.stats(path);
+        if (!stats) 
+            return;
         return stats.isDirectory();
     }
 
     isFile(path: string) {
-        return this.stats(path).isFile();
+        const stats = this.stats(path);
+        if (!stats) 
+            return;
+        return stats.isFile();
     }
 
     async readFile(path: string) {
@@ -102,6 +109,8 @@ export class Workspace {
         while (stack.length > 0) {
             const [currentPath, parent] = stack.pop()!;
             const stats = this.stats(currentPath);
+            if (!stats)
+                continue;
         
             if (stats.isDirectory()) {
                 const entries = await readdir(currentPath);

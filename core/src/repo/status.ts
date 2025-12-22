@@ -3,7 +3,6 @@ import { sep } from "node:path";
 import { DiffField, DiffAction } from "../types";
 import { TRepository } from "./repository";
 import { IndexEntry, TreeEntry } from "./entries";
-import { TBlob } from "./objects";
 import { Inspector } from "../lib/inspector";
 
 export class TStatus {
@@ -27,13 +26,13 @@ export class TStatus {
         this._conflicts = new Map();
     }
 
-    get untracked() { return this._untracked; }
-    get changed() { return this._changed; }
-    get workspaceChanges() { return this._workspaceChanges; }
-    get indexChanges() { return this._indexChanges; }
-    get stats() { return this._stats; }
-    get headTree() { return this._headTree; }
-    get conflicts() { return this._conflicts; }
+    get untracked(): ReadonlySet<string> { return this._untracked; }
+    get changed(): ReadonlySet<string> { return this._changed; }
+    get workspaceChanges(): ReadonlyMap<string, DiffAction> { return this._workspaceChanges; }
+    get indexChanges(): ReadonlyMap<string, DiffAction> { return this._indexChanges; }
+    get stats(): ReadonlyMap<string, Stats> { return this._stats; }
+    get headTree(): ReadonlyMap<string, TreeEntry> { return this._headTree; }
+    get conflicts(): ReadonlyMap<string, number[]> { return this._conflicts; }
 
     async initialize() {
         await this._scanWorkspace();
@@ -52,12 +51,6 @@ export class TStatus {
                 this._untracked.add(trackedPath);
             }
         }
-    }
-
-    private async _recordChange(path: string, field: DiffField, action: DiffAction) {
-        this._changed.add(path);
-        const changes = field === DiffField.WORKSPACE ? this._workspaceChanges : this._indexChanges;
-        changes.set(path, action);
     }
 
     private async _loadHeadTree() {
@@ -108,17 +101,22 @@ export class TStatus {
         const status = await this._inspector.compareIndexToWorkspace(entry, stat);
 
         if (status) {
-            this._recordChange(entry.path, DiffField.WORKSPACE, DiffAction.MODIFY);
+            this._recordChange(entry.path, DiffField.WORKSPACE, status);
         } else {
-            this._repo!.index.updateEntryStat(entry, stat!); // TODO: investigate the stat being null
+            this._repo!.index.updateEntryStat(entry, stat); // TODO: investigate the stat being null
         }
     }
 
     private _collectionDeletedHeadFiles() {
         for (const path of this._headTree.keys()) {
-            if (!this._repo!.index.isTrackedFile(path)) {
+            if (!this._repo!.index.isTrackedFile(path))
                 this._recordChange(path, DiffField.INDEX, DiffAction.DELETE);
-            }
         }
+    }
+
+    private async _recordChange(path: string, field: DiffField, action: DiffAction) {
+        this._changed.add(path);
+        const changes = field === DiffField.WORKSPACE ? this._workspaceChanges : this._indexChanges;
+        changes.set(path, action);
     }
 }

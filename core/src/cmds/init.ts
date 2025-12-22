@@ -2,6 +2,9 @@ import { mkdir } from "fs/promises";
 import { FileSystem } from "../lib/standard";
 import { TrakRepository } from "../repository";
 import { BaseCommand } from "./-base";
+import { TRefs } from "../repo/refs";
+
+const DEFAULT_BRANCH = "master";
 
 interface InitArgs {
     path: string;
@@ -43,14 +46,19 @@ export class Init extends BaseCommand<InitArgs> {
         TrakRepository.repoDir(repo, true, "refs", "remotes");
         TrakRepository.repoDir(repo, true, "refs", "heads");
 
-        const headFile = TrakRepository.repoFile(repo, false, "HEAD");
-        if (headFile)
-            await FileSystem.writeFile(headFile, 'ref: refs/heads/master');
+        const refs = new TRefs(repo.trakDir);
+        const defaultBranchFilePath = TrakRepository.repoFile(repo, false, "refs", "heads", DEFAULT_BRANCH);
+        if (defaultBranchFilePath) {
+            await refs.updateHead(defaultBranchFilePath);
+        }
+            
         
         const descriptionFile = TrakRepository.repoFile(repo, false, "description");
         if (descriptionFile)
             await FileSystem.writeFile(descriptionFile, "Unnamed repository; edit this file 'description' to name the repository.\n");
 
         // return repo;
+
+        process.exit(0);
     }
 }

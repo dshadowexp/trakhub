@@ -1,10 +1,10 @@
 import type { Stats } from "fs";
 import { dirname, parse } from "path";
-import { type DiffEntry } from "./tree-diff";
 import { DiffAction } from "../types";
+import { Inspector } from "./inspector";
+import { type DiffEntry } from "./tree-diff";
 import type { TRepository } from "../repo/repository";
 import type { BaseEntry, IndexEntry, TreeEntry } from "../repo/entries";
-import { Inspector } from "./inspector";
 
 enum MigrationConflictType {
     STALE_FILE = 'stale_file',
@@ -13,12 +13,30 @@ enum MigrationConflictType {
     UNTRACKED_REMOVED = 'untracked_removed'
 }
 
-
+const MESSAGES = {
+    [MigrationConflictType.STALE_FILE]: [
+        "Your local changes to the following files would be overwritten by checkout:",
+        "Please commit your changes or stash them before you switch branches.",
+    ],
+    [MigrationConflictType.STALE_DIRECTORY]: [
+        "Updating the following directories would lose untracked files in them:",
+        "\n",
+    ],
+    [MigrationConflictType.UNTRACKED_OVERWRITTEN]: [
+        "The following untracked working tree files would be overwritten by checkout:",
+        "Please move or remove them before you switch branches.",
+    ],
+    [MigrationConflictType.UNTRACKED_REMOVED]: [
+        "The following untracked working tree files would be removed by checkout:",
+        "Please move or remove them before you switch branches.",
+    ],
+} as const;
 
 export class Migration {
     private _inspector: Inspector;
     private _changes: Map<DiffAction, [string, (BaseEntry | undefined)][]>;
     private _conflicts: Map<MigrationConflictType, Set<string>>;
+    private _errors: string[];
 
     constructor(
         private _repo: TRepository,
@@ -36,10 +54,15 @@ export class Migration {
             [MigrationConflictType.UNTRACKED_OVERWRITTEN, new Set<string>],
             [MigrationConflictType.UNTRACKED_REMOVED, new Set<string>]
         ]);
+        this._errors = [];
     }
 
     get changes(): ReadonlyMap<DiffAction, [string, (BaseEntry | undefined)][]> {
         return this._changes; 
+    }
+
+    get errors(): ReadonlyArray<string> {
+        return this._errors;
     }
 
     async applyChanges() {
@@ -52,19 +75,13 @@ export class Migration {
         return (await this._repo.objects.loadBlob(oid)).data;
     }
 
-    collectErrors() {
-        for (const [type, paths] of this._conflicts.entries()) {
-            if (paths.size === 0) return;
-            const lines = [...paths].map(path => `\t${ path }`);
-
-        }
-    }
-
     private _planChanges() {
         for (const change of this._treeDiff) {
             this._checkForConflict(change.path, change.old, change.new);
             this._changes.get(change.action)!.push([change.path, change.new]);
         }
+        
+        this._collectErrors();
     }
 
     private async _checkForConflict(path: string, oldItem: BaseEntry | undefined, newItem: BaseEntry | undefined) {
@@ -106,7 +123,7 @@ export class Migration {
                 if (!entry) return;
                 const stat = this._repo.workspace.stats(path);
                 this._repo.index.add(path, entry.hash, stat);
-            })
+            });
         })
     }
 
@@ -141,6 +158,15 @@ export class Migration {
                 return;
 
             currentDir = nextDir;
+        }
+    }
+
+    private _collectErrors() {
+        for (const [type, paths] of this._conflicts.entries()) {
+            if (paths.size === 0) return;
+            const lines = [...paths].map(path => `\t${ path }`);
+            const [header, footer] = MESSAGES[type];
+            this._errors.push([header, ...lines, footer].join('\n'));
         }
     }
 }

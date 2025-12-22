@@ -8,6 +8,7 @@ interface BranchArgs {
     verbose?: boolean, 
     delete?: boolean,
     force?: boolean,
+    forceDelete?: boolean,
 }
 
 export class Branch extends BaseCommand<BranchArgs> {
@@ -18,8 +19,9 @@ export class Branch extends BaseCommand<BranchArgs> {
             [
                 { name: 'branches', type: String, multiple: true, defaultOption: true },
                 { name: 'verbose', alias: 'v', type: Boolean },
-                { name: 'delete', alias: 'D', type: Boolean },
+                { name: 'delete', alias: 'd', type: Boolean },
                 { name: 'force', alias: 'f', type: Boolean },
+                { name: 'forceDelete', alias: 'D', type: Boolean },
             ],
             args
         )
@@ -95,11 +97,16 @@ export class Branch extends BaseCommand<BranchArgs> {
     }
 
     private async _deleteBranch(branchName: string) {
-        if (!this._args.force) return;
+        try {
+            if (!this._args.force) return;
 
-        const hash = await this._repo!.refs.deleteBranch(branchName);
-        const short = this._repo!.objects.shortHash(hash);
-        Terminal.println(`deleted branch ${ branchName } (was ${ short })`);
+            const hash = await this._repo!.refs.deleteBranch(branchName);
+            const short = this._repo!.objects.shortHash(hash);
+            Terminal.println(`deleted branch ${ branchName } (was ${ short })`);
+        } catch (error) {
+            Terminal.printerr(`error: ${ (error as any).message }`);
+            process.exit(1);
+        }
     }
 }
 

@@ -1,28 +1,39 @@
 import { type TCommit, TObjectType } from "../repo/objects";
 import type { TRepository } from "../repo/repository";
 
-export type RevisionNode = Ref | Parent | Ancestor;
+export type RevisionNode = Ref | Parent | Upstream | Ancestor;
 
 export interface Resolvable {
-    resolve(context: any): string | undefined;
+    resolve(context: any): Promise<string | null>;
 }
 
 export class Ref implements Resolvable {
     constructor(public readonly name: string) {}
 
-    resolve(context: any): string | undefined {
+    resolve(context: any): Promise<string | null> {
         return context.readRef(this.name);
     }
 }
 
 export class Parent implements Resolvable {
+    constructor(public readonly rev: RevisionNode, public readonly n: number) {}
+
+    async resolve(context: any): Promise<string | null> {
+        const oid = this.rev.resolve(context);
+        if (!oid) return null;
+
+        return context.commitParent(oid, this.n);
+    }
+}
+
+export class Upstream implements Resolvable {
     constructor(public readonly rev: RevisionNode) {}
 
-    resolve(context: any): string | undefined {
-        const oid = this.rev.resolve(context);
-        if (!oid) return undefined;
+    async resolve(context: any): Promise<string | null> {
+        const name = await context.upstream((this.rev as Ref).name);
+        if (!name) return null;
 
-        return context.commitParent(oid);
+        return context.readRef(name);
     }
 }
 
@@ -32,13 +43,13 @@ export class Ancestor implements Resolvable {
         public readonly n: number
     ) {}
 
-    resolve(context: any): string | undefined {
-        let oid = this.rev.resolve(context);
-        if (!oid) return undefined;
+    async resolve(context: any): Promise<string | null> {
+        let oid = await this.rev.resolve(context);
+        if (!oid) return null;
 
         for (let i = 0; i < this.n; i++) {
             oid = context.commitParent(oid);
-            if (!oid) return undefined;
+            if (!oid) return null;
         }
 
         return oid;
@@ -46,6 +57,7 @@ export class Ancestor implements Resolvable {
 }
 
 export class Revision {
+    static readonly HEAD = "HEAD";
     // Same invalid-name rules as Git
     static readonly INVALID_NAME = new RegExp(
         [
@@ -62,9 +74,10 @@ export class Revision {
 
     private static readonly PARENT = /^(.+)\^$/;
     private static readonly ANCESTOR = /^(.+)~(\d+)$/;
-
+    private static readonly UPSTREAM = /^(.*)@\{u(pstream)?\}$/i;
     private static readonly REF_ALIASES: Record<string, string> = {
-        "@": "HEAD"
+        "@": "HEAD",
+        "": "HEAD"
     };
 
     private _query: RevisionNode | undefined;
@@ -75,12 +88,12 @@ export class Revision {
         this._errors = [];
     }
 
-    get errors() {
+    get errors(): ReadonlyArray<Error> {
         return this._errors;
     }
 
     async resolve(type: TObjectType | null = null) {
-        let hash: string | undefined | null = this._query?.resolve(this);
+        let hash = await this._query!.resolve(this);
 
         if (type && !(await this.loadTypedObject(hash, type)))
             hash = null;
@@ -103,6 +116,13 @@ export class Revision {
         return null;
     }
 
+    async upstream(branch: string) {
+        if (branch === "HEAD")
+            branch = (await this._repo.refs.currentRef()).shortName;
+
+        await this._repo.remotes.getUpstream(branch);
+    }
+
     private async _logAmbigiousHash(name: string, candidations: string[]) {
         const objects: string[] = [];
         for (const candidate of candidations) {
@@ -122,16 +142,16 @@ export class Revision {
         // this._errors.push(new HintedError(message, [hint]));
     }
 
-    async commitParent(oid: string | undefined | null) {
+    async commitParent(oid: string | undefined | null, n: number = 1) {
         if (!oid) return null;
         const commit = await this.loadTypedObject(oid, TObjectType.COMMIT);
         if (!commit)
             return null;
 
-        return (commit as TCommit).parentHashes[0];
+        return (commit as TCommit).parentHashes[n - 1];
     }
 
-    async loadTypedObject(oid: string | undefined, type: string | null) {
+    async loadTypedObject(oid: string | null, type: string | null) {
         if (!oid) return null;
     
         const object = await this._repo.objects.readObject(oid);
@@ -152,7 +172,14 @@ export class Revision {
         match = revision.match(this.PARENT);
         if (match) {
             const rev = this.parse(match[1]);
-            return rev ? new Parent(rev) : undefined;
+            const n = match[2] === "" ? 1 : parseInt(match[2]);
+            return rev ? new Parent(rev, n) : undefined;
+        }
+
+        match = revision.match(this.UPSTREAM);
+        if (match) {
+            const rev = this.parse(match[1]);
+            return rev ? new Upstream(rev) : undefined;
         }
 
         // ancestor: rev~n

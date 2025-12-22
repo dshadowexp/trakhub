@@ -1,38 +1,124 @@
+import type { Migration } from "../lib/migration";
 import { Revision } from "../lib/revision";
+import { Terminal } from "../lib/standard";
+import { TObjectType } from "../repo/objects";
+import type { SymRef } from "../repo/refs";
 import { BaseCommand } from "./-base";
 
+export const DETACHED_HEAD_MESSAGE = `
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by performing another checkout.
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using the branch command. Example:
+jit branch <new-branch-name>
+`.trim();
+
 type CheckoutArgs = {
-    createBranch?: boolean,
+    branch: string,
     startPoint?: string
+    create?: boolean
 }
 
 export class Checkout extends BaseCommand<CheckoutArgs> {
+    private _target: string | null = null;
+    private _currentRef: SymRef | null = null;
+    private _newRef: SymRef | null = null;
+    private _currentOid: string | null = null;
+    private _targetOid: string | null = null;
+
     constructor(args: any[] = []) {
         super(
             'checkout', 
             'lists the contents of a tree object',
             [
-                { name: 'hash', type: String, multiple: false, defaultOption: true },
-                { name: 'recursive', alias: 'r', type: Boolean },
+                { name: 'branch', type: String, multiple: false, defaultOption: true },
+                { name: 'startPoint', type: String },
+                { name: 'create', alias: 'b', type: Boolean },
             ],
             args
-        )
+        );
+
     }
 
     async run(): Promise<void> {
-        const branchName = 'this._args.branches![0]';
-        const startPoint = this._args.startPoint;
+        // let revision: Revision | undefined;
+        try {
+            // Extract into logic - also inside branch
+            this._target = this._args.branch;
+            const startPoint = this._args.startPoint;
 
-        let commitHash: string | null | undefined;
-        if (startPoint) {
-            const revision = new Revision(this._repo!, startPoint);
-            commitHash = await revision.resolve();
-        } else {
-            commitHash = await this._repo?.refs.readHead();
+            this._currentRef = await this._repo!.refs.currentRef();
+            this._currentOid = await this._currentRef.readHash();
+
+            const revision = new Revision(this._repo!, this._target);
+            this._targetOid = await revision.resolve(TObjectType.COMMIT);
+
+            await this._repo!.index.load();
+
+            const treeDiff = await this._repo!.objects.treeDiff(this._currentOid!, this._targetOid);
+            const migration = this._repo!.migration(treeDiff);
+            await migration.applyChanges();
+
+            await this._repo!.index.save();
+            await this._repo!.refs.setHead(this._target, this._targetOid);
+            this._newRef = await this._repo!.refs.currentRef();
+
+            await this._printPreviousHead();
+            this._printDetachmentNotice();
+            this._printNewHead();
+
+            process.exit(0);
+        } catch (error) {
+            
         }
+    }
 
-        if (!commitHash)
-            return;
+    private async _printPreviousHead() {
+        if (this._currentRef?.isHead() && (this._currentOid === this._targetOid)) {
+            await this._printHeadPosition("Previous HEAD position was", this._currentOid);
+        }
+    }
+
+    private _printDetachmentNotice() {
+        if (!(this._currentRef?.isHead() && !this._newRef?.isHead())) return;
+
+        Terminal.printerr(`Note: checking out ${ this._target }`);
+        Terminal.printerr("");
+        Terminal.printerr(DETACHED_HEAD_MESSAGE);
+        Terminal.printerr("");
+    }
+
+    private _printNewHead() {
+        if (this._newRef?.isHead()) {
+            this._printHeadPosition("HEAD is now at", this._targetOid);
+        } else if (this._newRef === this._currentRef) {
+            Terminal.printerr(`Already on ${ this._target }`);
+        } else {
+            Terminal.printerr(`Switched to branch ${ this._target }`);
+        }
+    }
+
+    private async _printHeadPosition(message: string, oid: string | null) {
+        if (!oid) return;
+        const commit = await this._repo!.objects.loadCommit(oid);
+        const short = this._repo!.objects.shortHash(oid);
+        Terminal.printerr(`${ message } ${ short } ${ commit.titleLine }`);
+    }
+
+    private _handleInvalidObject(revision: Revision, error: Error) {
+        revision.errors.forEach((err) => {
+            Terminal.printerr(`error: ${ err.message }`);
+            // err.hint.each { |line| @stderr.puts "hint: #{ line }" }
+        });
+        Terminal.printerr(`error: ${ error.message }`)
+    }
+
+    private _handleMigrationConflict(migration: Migration) {
+        migration.errors.forEach((message) => {
+            Terminal.printerr(`error: ${ message }`);
+        });
+        Terminal.printerr("Aborting");
     }
 }
 

@@ -6,6 +6,7 @@ const STATUS_MAP: Record<DiffAction, { long: string; short: string }> = {
     [DiffAction.ADD]: { long: "new file", short: "A" },
     [DiffAction.DELETE]: { long: "deleted", short: "D" },
     [DiffAction.MODIFY]: { long: "modified", short: "M" },
+    [DiffAction.UNTRACKED]: { long: "untracked", short: "U" }
 };
 
 const CONFLICT_STATUS_MAP: Record<string, { long: string; short: string }> = {
@@ -66,7 +67,7 @@ export class Status extends BaseCommand<StatusArgs> {
         this._printCommitStatus();
     }
 
-    private _printChanges(message: string, changes: Map<string, DiffAction | number[]> | Set<string>) {
+    private _printChanges(message: string, changes: any) {
         if (changes.size === 0) return;
         Terminal.println(message);
         for (const entry of changes) {
@@ -76,7 +77,7 @@ export class Status extends BaseCommand<StatusArgs> {
                 const [path, action] = entry;
                 let status;
                 if (typeof action === "string") {
-                    status = action ? (STATUS_MAP[action].long ?? ' ') : "";
+                    status = action ? (STATUS_MAP[action as DiffAction].long ?? ' ') : "";
                 } else {
                     status = action ? (CONFLICT_STATUS_MAP[action.sort().join(',')].long ?? ' ') : ""
                 }

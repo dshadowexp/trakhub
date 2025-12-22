@@ -1,39 +1,73 @@
-import type { BaseEntry } from "../repo/entries";
+import type { DiffEntry } from "./tree-diff";
+import type { TreeEntry } from "../repo/entries";
 import { TObjectType, type TCommit } from "../repo/objects";
 import type { TRepository } from "../repo/repository";
 import { PathFilter } from "./path-filter";
 import { Revision } from "./revision";
+import type { SymRef } from "../repo/refs";
 
 enum Flags {
     SEEN = ':seen',
     ADDED = ':added',
-    UNINTERESTING = ':uninteresting'
+    UNINTERESTING = ':uninteresting',
+    TREESAME = ':treesame'
 }
 
 const RANGE = /^(.*)\.\.(.*)$/;
 const EXCLUDE = /^\^(.+)$/;
 
 export class RevList {
-    private _pending: string[];
+    private _output: TCommit[];
+    private _pending: TreeEntry[];
     private _queue: TCommit[];
     private _prune: string[];
     private _commits: Map<string, TCommit>;
     private _flags: Map<string, Set<Flags>>;
-    private _objects: boolean;
-    private _walk: boolean;
-    private _limited: boolean;
+    private _diff: Map<string, DiffEntry[]>;
     private _filter: PathFilter;
+    private _objects: boolean | undefined;
+    private _walk: boolean | undefined;
+    private _limited: boolean;
 
-    constructor(private _repo: TRepository, private _rev: Revision, options: any = {}) {
+    constructor(private _repo: TRepository, private _revs: string[]) {
+        this._output = [];
         this._pending = [];
         this._queue = [];
         this._prune = [];
         this._commits = new Map();
         this._flags = new Map();
-        this._objects = options.objects || false;
-        this._walk = options.walk || true;
+        this._diff = new Map();
         this._limited = false;
         this._filter = PathFilter.build(this._prune);
+    }
+
+    async initialize(options: any = {}) {
+        this._objects = options.objects || false;
+        this._walk = options.walk || true;
+        if (Object.hasOwn(options, 'all')) {
+            const refs = await this._repo!.refs.listAllRefs();
+            for (const ref of refs) {
+                await this._includeRefs(refs);
+            }
+        }
+
+        for (const rev of this._revs) {
+            await this._handleRevision(rev);
+        }
+
+        if (this._queue.length === 0) {
+            await this._handleRevision(Revision.HEAD);
+        }
+    }
+
+    private async _includeRefs(refs: SymRef[]): Promise<void> {
+        const oids = (await Promise.all(
+            refs.map(ref => ref.readHash())
+        )).filter((oid): oid is string => oid !== null);
+        
+        for (const oid of oids) {
+            await this._handleRevision(oid);
+        }
     }
 
     private async _handleRevision(rev: string) {
@@ -42,17 +76,19 @@ export class RevList {
         if (this._repo.workspace.stats(rev)) {
             this._prune.push(rev);
             return;
-        } else if (match) {
-            this._setStartPoint(match[1], false);
-            this._setStartPoint(match[2], true);
+        } else
+        
+        if (match) {
+            await this._setStartPoint(match[1], false);
+            await this._setStartPoint(match[2], true);
             return;
         } 
 
         match = EXCLUDE.exec(rev);
         if (match) {
-            this._setStartPoint(match[1], false);
+            await this._setStartPoint(match[1], false);
         } else {
-            this._setStartPoint(rev, true);
+            await this._setStartPoint(rev, true);
         }
     }
 
@@ -68,53 +104,141 @@ export class RevList {
         }
     }
 
-    private _markParentsUninteresting(commit: TCommit | null) {
-        if (!commit) return;
+    async* each() {
+        if (this._limited)
+            await this._limitList();
 
-        while (commit!.parentHashes.length || 0 > 0) {
-            if (!this._mark(commit!.hash!, Flags.UNINTERESTING))
-                return;
-
-            commit = this._commits.get(commit!.parentHashes[0]) ?? null;
+        for await (const commit of this._traverseCommits()) {
+            yield commit;
         }
     }
 
-    async each() {
-        if (this._limited) {
-
-        }
-    }
-
-    async traverseCommits() {
+    private async* _traverseCommits() {
         while (this._queue.length > 0) {
             const commit = this._queue.shift()!;
-            await this.addParents(commit);
+            if (!this._limited)
+                await this.addParents(commit);
 
+            if (
+                this._isMarked(commit.hash!, Flags.UNINTERESTING) 
+                || this._isMarked(commit.hash!, Flags.TREESAME)
+            ) {
+                continue;
+            }
+
+            this._pending.push(this._repo!.objects.treeEntry(commit.treeHash));
+            yield commit;
         }
+    }
+
+    private async* _traverseTree(entry: TreeEntry): AsyncGenerator<TreeEntry> {
+        yield entry;
+    
+        if (!entry.isTree()) 
+            return;
+        
+        const tree = await this._repo.objects.loadTree(entry.hash);
+        
+        for (const [name, item] of tree.entries) {
+            yield* this._traverseTree(item as TreeEntry);
+        }
+    }
+
+    private async* _traversePending() {
+        if (!this._objects)
+            return;
+
+        for (const entry of this._pending) {
+            for await (const obj of this._traverseTree(entry)) {
+                if (this._isMarked(obj.hash, Flags.UNINTERESTING))
+                    continue;
+
+                if (!this._mark(obj.hash, Flags.SEEN))
+                    continue;
+
+                yield obj;
+                // return true
+            }
+        }
+    }
+
+    private async _limitList() {
+        while (this._stillInteresting()) {
+            const commit = this._queue.shift();
+            if (!commit) 
+                break; // TODO check if valid if statment
+
+            await this._addParents(commit);
+            if (!this._isMarked(commit!.hash!, Flags.UNINTERESTING)) 
+                this._output.push(commit);
+        }
+    }
+
+    private _stillInteresting() {
+        if (this._queue.length === 0) 
+            return false;
+
+        const oldestOut = this._output[this._output.length - 1];
+        const newestIn = this._queue[0];
+        if (oldestOut && oldestOut.date <= newestIn.date)
+            return true;
+
+        for (const commit of this._queue) {
+            if (!this._isMarked(commit.hash!, Flags.UNINTERESTING))
+                return true;
+        }
+
+        return false;
+    }
+
+    private async _addParents(commit: TCommit) {
+        if (!this._mark(commit.hash, Flags.ADDED))
+            return;
+
+        const parent = await this._loadCommit(commit.parentHashes[0]);
+        if (!parent) 
+            return;
+
+        if (this._isMarked(commit.hash!, Flags.UNINTERESTING))
+            this._markParentsUninteresting(parent);
+
+        this._enqueueCommit(commit);
     }
 
     async addParents(commit: TCommit) {
-        if (!this._mark(commit.hash!, Flags.ADDED))
+        if (!this._mark(commit.hash, Flags.ADDED))
             return;
 
-        for (const parentHash of commit.parentHashes) {
-            const parentCommit = await this._loadCommit(parentHash);
-            if (!parentCommit) continue;
+        const parentCommit = await this._loadCommit(commit.parentHashes[0]);
+
+        if (this._isMarked(commit.parentHashes[0], Flags.UNINTERESTING)) {
+            if (parentCommit)
+                this._markParentsUninteresting(parentCommit);
+        } else {
+            this._simplifyCommit(commit);
+        }
+
+        if (!parentCommit)
             this._enqueueCommit(parentCommit);
-        } 
     }
-    _enqueueCommit(commit: TCommit | null) {
+
+    private async _simplifyCommit(commit: TCommit) {
+        if (this._prune.length === 0) 
+            return;
+
+        const treeDiff = await this._treeDiff(commit.treeHash, commit.parentHashes[0]);
+        if (treeDiff)
+            this._mark(commit.hash, Flags.TREESAME)
+    }
+
+    private _enqueueCommit(commit: TCommit | null) {
         if (!commit) return;
 
-        if (!this._mark(commit.hash!, Flags.SEEN))
+        if (!this._mark(commit.hash, Flags.SEEN))
             return;
 
         const index = this._queue.findIndex(c => c.date < commit.date );
-        if (index === -1) {
-            this._queue.push(commit);
-        } else {
-            this._queue.splice(index, 0, commit);
-        }
+        this._queue.splice(index === -1 ? this._queue.length : index, 0, commit);
     }
 
     private async _loadCommit(oid: string | null) {
@@ -128,6 +252,16 @@ export class RevList {
         }
 
         return commit;
+    }
+
+    private async _treeDiff(a: string, b: string) {
+        const key = `${ a },${ b }`;
+        if (this._diff.has(key))
+            return this._diff.get(key);
+
+        const diffs = await this._repo.objects.treeDiff(a, b);
+        this._diff.set(key, diffs);
+        return diffs;
     }
 
     private async _markEdgesUninteresting() {
@@ -147,19 +281,33 @@ export class RevList {
         }
     }
 
-    private _traverseTree(entry: BaseEntry) {
+    private _markParentsUninteresting(commit: TCommit | null) {
+        if (commit === null) 
+            return;
 
+        while (commit!.parentHashes.length || 0 > 0) {
+            if (!this._mark(commit?.hash, Flags.UNINTERESTING))
+                return;
+
+            commit = this._commits.get(commit!.parentHashes[0]) ?? null;
+        }
     }
 
-    private _traverseCommit() {
-        
+    private async _markTreeUninteresting(oid: string) {
+        const entry = this._repo.objects.treeEntry(oid);
+        for await (const obj of this._traverseTree(entry)) {
+            this._mark(obj.hash, Flags.UNINTERESTING);
+        }
     }
 
     private _isMarked(commitHash: string, flag: Flags): boolean {
         return !!this._flags.get(commitHash)?.has(flag);
     }
 
-    private _mark(oid: string, flag: Flags) {
+    private _mark(oid: string | undefined | null, flag: Flags) {
+        if (!oid) 
+            return;
+
         let isContained = false;
         if (!this._flags.has(oid)) {
             isContained = true;
@@ -170,8 +318,5 @@ export class RevList {
         return isContained;
     }
 
-    private _markTreeUninteresting(oid: string) {
-        const entry = this._repo.objects.treeEntry(oid);
-
-    }
+    
 }

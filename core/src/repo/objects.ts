@@ -11,6 +11,7 @@ import { TrakAuthor } from './author';
 import { DiffAction, NULL_BYTE, UnixFileModeEnum } from '../types';
 import { BaseEntry, IndexEntry, TreeEntry } from './entries';
 import { TreeDiff } from '../lib/tree-diff';
+import { PathFilter } from '../lib/path-filter';
 
 export enum TObjectType {
     COMMIT = "commit",
@@ -156,7 +157,7 @@ export class TCommit extends TObject {
         private _committer: TrakAuthor,
         private _message: string,
     ) {
-        super(TObjectType.COMMIT, _message);
+        super(TObjectType.COMMIT, "");
     }
 
     get treeHash(): string {
@@ -284,7 +285,7 @@ export class TObjects {
     }
 
     treeEntry(treeHash: string) {
-        return new BaseEntry(treeHash, UnixFileModeEnum.DIR)
+        return new TreeEntry('', treeHash, UnixFileModeEnum.DIR);
     }
 
     async store(obj: TObject) {
@@ -378,14 +379,17 @@ export class TObjects {
         switch(objectType as TObjectType) {
             case TObjectType.BLOB:
                 const blob = TBlob.deserialize(content);
+                blob.hash = this.hashObject(blob);
                 this._objects.set(hash, blob);
                 return blob;
             case TObjectType.TREE:
                 const tree = TTree.deserialize(content);
+                tree.hash = this.hashObject(tree);
                 this._objects.set(hash, tree);
                 return tree;
             case TObjectType.COMMIT:
                 const commit = TCommit.deserialize(content);
+                commit.hash = this.hashObject(commit);
                 this._objects.set(hash, commit);
                 return commit;
             default:
@@ -393,7 +397,7 @@ export class TObjects {
         }
     } 
 
-    async treeDiff(aCommitHash: string, bCommitHash: string) {
+    async treeDiff(aCommitHash: string, bCommitHash: string, pathFilter: PathFilter = new PathFilter()) {
         const treeDiff = new TreeDiff(this);
         const commitObjectA = await this.loadCommit(aCommitHash);
         const commitObjectB = await this.loadCommit(bCommitHash);

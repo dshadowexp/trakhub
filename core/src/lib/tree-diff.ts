@@ -1,7 +1,6 @@
 import { join } from "path";
-import { TCommit, TObjects, TTree } from "../repo/objects";
-import { DiffAction, UnixFileModeEnum, type TrakTreeEntry } from "../types";
-import type { TRepository } from "../repo/repository";
+import { TObjects } from "../repo/objects";
+import { DiffAction, UnixFileModeEnum } from "../types";
 import { BaseEntry, TreeEntry } from "../repo/entries";
 
 export type DiffEntry = {

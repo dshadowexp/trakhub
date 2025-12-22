@@ -2,11 +2,13 @@ import { join } from "path";
 import { realpathSync } from "fs";
 import { TObjects } from "./objects";
 import { TIndex } from "./t-index";
-import { TRefs } from "./refs";
+import { TRefs, TRemotes } from "./refs";
 import { FileSystem } from "../lib/standard";
 import { Workspace } from "./workspace";
 import { TConfig } from "./config";
 import { TStatus } from "./status";
+import type { DiffEntry } from "../lib/tree-diff";
+import { Migration } from "../lib/migration";
 
 export class TRepository {
     private _trakDir: string;
@@ -16,6 +18,7 @@ export class TRepository {
     private _refs: TRefs | undefined;
     private _status: TStatus | undefined;
     private _config: TConfig | undefined;
+    private _remotes: TRemotes | undefined;
 
     constructor(private _workTree: string) {
         this._trakDir = join(this._workTree, ".trak");
@@ -43,6 +46,14 @@ export class TRepository {
 
     get config(): TConfig {
         return this._config ??= new TConfig();
+    }
+
+    get remotes(): TRemotes {
+        return this._remotes ??= new TRemotes(this);
+    }
+
+    migration(treeDiff: DiffEntry[]) {
+        return new Migration(this, treeDiff);
     }
 
     static repoFind(path: string = '.', required: boolean = true): TRepository | null {

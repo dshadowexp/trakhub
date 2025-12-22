@@ -58,8 +58,10 @@ export class TIndex {
         return ( this.isTrackedFile(path) || this._parents.has(path) );
     }
 
-    updateEntryStat(entry: IndexEntry, stats: Stats) {
-        entry.updateStat(stats)
+    updateEntryStat(entry: IndexEntry, stat: Stats | undefined) {
+        if (!stat)
+            return;
+        entry.updateStat(stat);
     }
 
     private _storeEntry(entry: IndexEntry) {
